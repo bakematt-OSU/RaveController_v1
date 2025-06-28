@@ -1,89 +1,69 @@
 #include "EffectsManager.h"
 #include "Config.h"
 
-// ─── HELPER: generate a 0–255 rainbow wheel color ─────────────────────────────
-static uint32_t wheel(PixelStrip::Segment& seg, uint8_t pos) {
-    if (pos < 85) {
-        return seg.ColorRGB(255 - pos * 3, pos * 3, 0);
-    } else if (pos < 170) {
-        pos -= 85;
-        return seg.ColorRGB(0, 255 - pos * 3, pos * 3);
-    } else {
-        pos -= 170;
-        return seg.ColorRGB(pos * 3, 0, 255 - pos * 3);
-    }
-}
+// Provide the one true definition of triggerRipple (declared extern in KineticRipple.h)
+volatile bool triggerRipple = false;
 
-EffectsManager::EffectsManager(PixelStrip& s)
-    : strip(s) {}
+// plus your accelX/Y/Z definitions...
+float accelX = 0.0f;
+float accelY = 0.0f;
+float accelZ = 0.0f;
 
+EffectsManager::EffectsManager(PixelStrip& strip)
+  : strip_(strip)
+{}
+
+// Populate effects_ with the ones you’ve actually provided headers for
 void EffectsManager::registerDefaultEffects() {
-    // Solid white
-    definitions.push_back({
-        "solid",
-        [](PixelStrip::Segment& seg) {
-            uint32_t c = seg.ColorRGB(255,255,255);
-            for (uint16_t i=seg.startIndex(); i<=seg.endIndex(); ++i)
-                seg.setPixelColor(i, c);
-        },
-        [](PixelStrip::Segment&){},
-        0
-    });
+    effects_.clear();
 
-    // Rainbow cycle
-    definitions.push_back({
-        "rainbow",
-        [](PixelStrip::Segment&){},
-        [](PixelStrip::Segment& seg) {
-            static uint8_t hue = 0;
-            uint16_t len = seg.endIndex() - seg.startIndex() + 1;
-            for (uint16_t i=0; i<len; ++i) {
-                uint8_t pos = (i * 255 / len + hue) & 0xFF;
-                seg.setPixelColor(seg.startIndex() + i, wheel(seg, pos));
-            }
-            hue++;
-        },
-        20
-    });
+    effects_.push_back({ "solid",          PixelStrip::Segment::SegmentEffect::SOLID,          0xFFFFFF, 0 });
+    effects_.push_back({ "rainbow",        PixelStrip::Segment::SegmentEffect::RAINBOW,        0,        0 });
+    effects_.push_back({ "flash_trigger",  PixelStrip::Segment::SegmentEffect::FLASH_TRIGGER,  0,        0 });
+    effects_.push_back({ "rainbow_cycle",  PixelStrip::Segment::SegmentEffect::RAINBOW_CYCLE,  20,       0 });
+    effects_.push_back({ "theater_chase",  PixelStrip::Segment::SegmentEffect::THEATER_CHASE,  50,       0 });
+    effects_.push_back({ "fire",           PixelStrip::Segment::SegmentEffect::FIRE,           0,        0 });
+    effects_.push_back({ "flare",          PixelStrip::Segment::SegmentEffect::FLARE,          50,       80 });
+    effects_.push_back({ "colored_fire",   PixelStrip::Segment::SegmentEffect::COLORED_FIRE,   0,        0 });
+    effects_.push_back({ "accel_meter",    PixelStrip::Segment::SegmentEffect::ACCEL_METER,    0,        0 });
+    effects_.push_back({ "kinetic_ripple", PixelStrip::Segment::SegmentEffect::KINETIC_RIPPLE, 0,        0 });
 }
 
 void EffectsManager::begin() {
-    // no-op
-}
-
-void EffectsManager::startEffect(const String& name) {
-    active.clear();
-    for (auto& def : definitions) {
-        if (name.equalsIgnoreCase(def.name)) {
-            ActiveEffect ae;
-            ae.segment  = strip.getSegments().at(0);
-            ae.step     = def.step;
-            ae.interval = def.intervalMs;
-            ae.lastRun  = millis();
-            def.begin(*ae.segment);
-            active.push_back(ae);
-            return;
-        }
-    }
+    // nothing to do here
 }
 
 void EffectsManager::startDefaultEffect() {
-    if (!definitions.empty())
-        startEffect(definitions.front().name);
+    if (!effects_.empty()) {
+        startEffect(effects_[0].name);
+    }
+}
+
+// Internal helper to fire up a named effect on segment 0
+void EffectsManager::startEffect(const String& name) {
+    activeSegments_.clear();
+    for (auto& ed : effects_) {
+        if (name.equalsIgnoreCase(ed.name)) {
+            auto* seg = strip_.getSegments().at(0);
+            seg->startEffect(ed.effect, ed.color1, ed.color2);
+            activeSegments_.push_back(seg);
+            return;
+        }
+    }
+    // Optional: Serial.println("Unknown effect: " + name);
 }
 
 void EffectsManager::handleCommand(const String& cmd) {
-    if (cmd.startsWith("EFFECT ")) {
-        startEffect(cmd.substring(7));
+    const String prefix = "EFFECT ";
+    if (cmd.startsWith(prefix)) {
+        String name = cmd.substring(prefix.length());
+        name.trim();
+        startEffect(name);
     }
 }
 
 void EffectsManager::updateAll() {
-    uint32_t now = millis();
-    for (auto& ae : active) {
-        if (ae.interval == 0 || now - ae.lastRun >= ae.interval) {
-            ae.step(*ae.segment);
-            ae.lastRun = now;
-        }
+    for (auto* seg : activeSegments_) {
+        seg->update();
     }
 }

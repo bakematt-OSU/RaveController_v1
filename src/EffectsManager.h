@@ -1,54 +1,46 @@
+// EffectsManager.h
 #ifndef EFFECTSMANAGER_H
 #define EFFECTSMANAGER_H
 
 #include <Arduino.h>
 #include <vector>
-#include "PixelStrip.h"
+#include "PixelStrip.h"  // for Segment & SegmentEffect enum
 
-// Function pointers for effect begin/step callbacks
-using EffectBeginFunc = void (*)(PixelStrip::Segment&);
-using EffectStepFunc  = void (*)(PixelStrip::Segment&);
+// ——— ONE TRUE DEFINITION of your trigger flag ———————————————
+// volatile bool triggerRipple = false;  // extern’d in KineticRipple.h :contentReference[oaicite:0]{index=0}
+extern volatile bool triggerRipple;
 
-struct EffectDefinition {
-    const char*     name;
-    EffectBeginFunc begin;
-    EffectStepFunc  step;
-    uint16_t        intervalMs;
-};
+// ——— HERE are the definitions your AccelMeter effect needs —————————
+// float accelX = 0.0f;  // extern float accelX; in AccelMeter.h
+// float accelY = 0.0f;  // extern float accelY; in AccelMeter.h
+// float accelZ = 0.0f;  // extern float accelZ; in AccelMeter.h
+
+// Single declaration—no initializer here!
+extern volatile bool triggerRipple;
 
 class EffectsManager {
 public:
-    EffectsManager(PixelStrip& strip);
+    struct EffectDef {
+        String                                   name;
+        PixelStrip::Segment::SegmentEffect       effect;
+        uint32_t                                 color1;
+        uint32_t                                 color2;
+    };
 
-    // Register built-in effects
+    explicit EffectsManager(PixelStrip& strip);
+
     void registerDefaultEffects();
-
-    // Prepare any internal state (called in setup())
     void begin();
-
-    // Start a named effect on the primary segment
-    void startEffect(const String& effectName);
-
-    // Kick off the first‐registered effect at boot
     void startDefaultEffect();
-
-    // Parse & dispatch text commands (e.g. "EFFECT rainbow")
     void handleCommand(const String& cmd);
-
-    // Called each loop() to advance running effects
     void updateAll();
 
 private:
-    PixelStrip&                   strip;
-    std::vector<EffectDefinition> definitions;
+    void startEffect(const String& name);
 
-    struct ActiveEffect {
-        PixelStrip::Segment* segment;
-        EffectStepFunc       step;
-        uint32_t             lastRun;
-        uint16_t             interval;
-    };
-    std::vector<ActiveEffect> active;
+    PixelStrip& strip_;
+    std::vector<EffectDef> effects_;
+    std::vector<PixelStrip::Segment*> activeSegments_;
 };
 
 #endif // EFFECTSMANAGER_H
