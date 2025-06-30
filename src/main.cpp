@@ -44,5 +44,10 @@ void loop()
     processAudio();
     processAccel();
     updateHeartbeat();
+    for (auto *s : strip.getSegments())
+    {
+        s->update();
+    }
 
+    strip.show();
 }
