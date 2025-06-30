@@ -267,22 +267,37 @@ inline void updateHeartbeat()
     }
 }
 
+// inline void processBLE()
+
+
+// keep a handle to the connected central across calls
+static BLEDevice connectedCentral;
+
 inline void processBLE()
 {
-    BLEDevice central = BLE.central();
-    if (!central)
-        return;
+    // if not already connected, see if one just attached
+    if (!connectedCentral) {
+        connectedCentral = BLE.central();
+        if (connectedCentral) {
+            Serial.println("[BLE] Central connected");
+        }
+    }
 
-    while (central.connected())
-    {
-        BLE.poll();
-        if (cmdCharacteristic.written())
-        {
-            String line((const char *)cmdCharacteristic.value(), cmdCharacteristic.valueLength());
+    // if we are connected, poll once and handle any incoming writes
+    if (connectedCentral && connectedCentral.connected()) {
+        BLE.poll();  
+        if (cmdCharacteristic.written()) {
+            String line((const char *)cmdCharacteristic.value(),
+                        cmdCharacteristic.valueLength());
             line.trim();
             Serial.print("[BLE] ");
             Serial.println(line);
             handleCommandLine(line);
         }
+    }
+    else if (connectedCentral) {
+        // central was connected but now it's gone
+        Serial.println("[BLE] Central disconnected");
+        connectedCentral = BLEDevice();  // reset handle
     }
 }
