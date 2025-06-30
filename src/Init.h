@@ -11,6 +11,12 @@
 #include "PixelStrip.h"
 #include "Triggers.h"
 #include <ArduinoBLE.h>
+#include <LittleFS_Mbed_RP2040.h>  
+#include <stdio.h> 
+
+// — where to keep the name on flash —
+#define BT_NAME_FILE     "/btname.txt"
+#define DEFAULT_BT_NAME  "RP2040-LED"
 
 // Externally defined globals (from main.cpp)
 extern volatile int16_t       sampleBuffer[];
@@ -80,15 +86,52 @@ inline void initLEDs() {
 BLEService ledService("180A"); // Custom LED service
 BLECharacteristic cmdCharacteristic("2A57", BLEWrite, 100); // Write-only command channel
 
-inline void initBLE() {
-    if (!BLE.begin()) {
-        Serial.println("BLE init failed!");
-        while (1);
+// 1) Create a global pointer to the FS wrapper
+static LittleFS_MBED *myFS = nullptr;
+
+// 2) Mount (init) the file system
+inline void initFS() {
+  myFS = new LittleFS_MBED();        // allocate the wrapper
+  if (! myFS->init()) {              // mount it
+    Serial.println("⚠️ LittleFS mount failed");
+  }
+}
+
+inline String loadBTName() {
+    FILE *f = fopen(BT_NAME_FILE, "r");
+    if (!f) return DEFAULT_BT_NAME;
+
+    char buf[32] = {0};
+    if (!fgets(buf, sizeof(buf), f)) {
+        fclose(f);
+        return DEFAULT_BT_NAME;
     }
-    BLE.setLocalName("RP2040-LED");
-    BLE.setAdvertisedService(ledService);
-    ledService.addCharacteristic(cmdCharacteristic);
-    BLE.addService(ledService);
-    BLE.advertise();
-    Serial.println("BLE Ready and Advertising.");
+    fclose(f);
+
+    // ----- fix starts here -----
+    String name(buf);   // construct the String
+    name.trim();        // strip newline/whitespace
+    // ----- fix ends here -----
+    
+
+    return name.length() ? name : DEFAULT_BT_NAME;
+}
+
+// 4) In your BLE init, pull that name in
+inline void initBLE() {
+  if (!BLE.begin()) {
+    Serial.println("BLE init failed!");
+    while (1);
+  }
+
+  String btName = loadBTName();
+  BLE.setLocalName(btName.c_str());
+  BLE.setAdvertisedService(ledService);
+  ledService.addCharacteristic(cmdCharacteristic);
+  BLE.addService(ledService);
+  BLE.advertise();
+
+  Serial.print("BLE Ready as “");
+  Serial.print(btName);
+  Serial.println("”");
 }

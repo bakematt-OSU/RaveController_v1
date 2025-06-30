@@ -12,6 +12,8 @@
 #include "PixelStrip.h"
 #include "Triggers.h"
 #include "EffectLookup.h"
+#include <LittleFS_Mbed_RP2040.h> // brings in LittleFS + FS
+#include <stdio.h>                // for fopen/fputs/fclose
 
 // External globals defined in main.cpp
 extern volatile int16_t sampleBuffer[];
@@ -27,9 +29,8 @@ extern HeartbeatColor hbColor;
 extern unsigned long lastHbChange;
 extern uint8_t activeR, activeG, activeB;
 
-
-
-inline void handleCommandLine(const String& line) {
+inline void handleCommandLine(const String &line)
+{
     // TRIM WHITESPACE AND SPLIT COMMAND/ARGUMENTS
     String trimmed = line;
     trimmed.trim();
@@ -133,6 +134,82 @@ inline void handleCommandLine(const String& line) {
             Serial.println(args);
         }
     }
+    else if (cmd == "setbtname")
+    {
+        args.trim();
+        if (args.length() >= 1 && args.length() <= 20)
+        {
+            FILE *f = fopen(BT_NAME_FILE, "w");
+            if (f)
+            {
+                fputs(args.c_str(), f);
+                fputc('\n', f);
+                fclose(f);
+
+                // immediately bump the BLE name
+                BLE.stopAdvertise();
+                BLE.setLocalName(args.c_str());
+                BLE.advertise();
+
+                Serial.print("BT name set to “");
+                Serial.print(args);
+                Serial.println("”");
+            }
+            else
+            {
+                Serial.println("Error: cannot open file for write");
+            }
+        }
+        else
+        {
+            Serial.println("Usage: setbtname <1–20 chars>");
+        }
+    }
+
+    else if (cmd == "saveconfig")
+    {
+        StaticJsonDocument<1024> doc;
+        auto arr = doc.createNestedArray("segments");
+
+        for (auto *s : pixelStrip.getAllSegments())
+        {
+            JsonObject o = arr.createNestedObject();
+            o["id"] = s->id();
+            o["start"] = s->startIndex();
+            o["end"] = s->endIndex();
+            o["name"] = s->name().c_str();
+            // record which effect is running and its params
+            if (s->currentEffect() == Effect::RAINBOW)
+            {
+                o["effect"] = "rainbow";
+                o["speed"] = s->effectParam(); // however you store it
+            }
+            else if (s->currentEffect() == Effect::SOLID)
+            {
+                o["effect"] = "solid";
+                auto col = s->primaryColor();
+                auto cArr = o.createNestedArray("color");
+                cArr.add(col.R);
+                cArr.add(col.G);
+                cArr.add(col.B);
+            }
+            // …other effects…
+        }
+
+        if (saveConfig(doc))
+        {
+            Serial.println("✔️ Configuration saved");
+        }
+        else
+        {
+            Serial.println("❌ Save failed");
+        }
+    }
+    else if (cmd == "clearconfig")
+    {
+        LittleFS.remove(STATE_FILE);
+        Serial.println("✔️ Configuration cleared");
+    }
 
     // UNKNOWN
     else
@@ -147,7 +224,8 @@ inline void handleCommandLine(const String& line) {
 // ——————————————
 inline void processSerial()
 {
-    if (!Serial.available()) return;
+    if (!Serial.available())
+        return;
     String line = Serial.readStringUntil('\n');
     handleCommandLine(line);
 }
@@ -214,15 +292,19 @@ inline void updateHeartbeat()
     }
 }
 
-inline void processBLE() {
+inline void processBLE()
+{
     BLEDevice central = BLE.central();
-    if (!central) return;
+    if (!central)
+        return;
 
-    while (central.connected()) {
+    while (central.connected())
+    {
         BLE.poll();
 
-        if (cmdCharacteristic.written()) {
-            String line((const char*)cmdCharacteristic.value(), cmdCharacteristic.valueLength());
+        if (cmdCharacteristic.written())
+        {
+            String line((const char *)cmdCharacteristic.value(), cmdCharacteristic.valueLength());
             line.trim();
             Serial.print("[BLE] ");
             Serial.println(line);
