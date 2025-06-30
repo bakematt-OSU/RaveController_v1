@@ -16,7 +16,7 @@ static byte flare_heat[MAX_LEDS];
 // --- Helper Functions ---
 // (These are the same as the Fire effect)
 
-RgbColor FlareHeatColor(byte temperature) {
+inline RgbColor FlareHeatColor(byte temperature) {
     byte t192 = round((temperature / 255.0) * 191);
     byte heatramp = t192 & 0x3F; 
     heatramp <<= 2;

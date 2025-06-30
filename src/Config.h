@@ -1,44 +1,28 @@
-#ifndef CONFIG_H
-#define CONFIG_H
+// config.h
+// Centralized configuration constants and types
 
-#include <Arduino.h>
+#pragma once
+#include <stdint.h>
 
-// ─── LIBRARIES ──────────────────────────────────────────────────────────────────
-#include <WiFiNINA.h>   // Wi-Fi using the NINA module
-#include <ArduinoBLE.h> // Bluetooth Low Energy
+// —— Pin Definitions ——
+constexpr uint8_t LEDR_PIN = 25;
+constexpr uint8_t LEDG_PIN = 26;
+constexpr uint8_t LEDB_PIN = 27;
+constexpr uint8_t LED_PIN  = 4;
 
-// ─── SERIAL SETTINGS ──────────────────────────────────────────────────────────
-// Baud rate for Serial debug & commands
-#define SERIAL_BAUD_RATE    115200
+// —— LED Strip Configuration ——
+constexpr uint16_t LED_COUNT     = 300;
+constexpr uint8_t  BRIGHTNESS    = 25;
+constexpr uint8_t  SEGMENT_COUNT = 0;
 
-// ─── LED STRIP SETTINGS ────────────────────────────────────────────────────────
-// Data pin connected to NeoPixel DIN
-#define DATA_PIN            4
-// Total number of LEDs in your strip
-#define LED_COUNT           300
-// Default global brightness (0–255)
-#define DEFAULT_BRIGHTNESS  175
-// Number of logical segments on the strip
-#define NUM_SEGMENTS        3
+// —— Accelerometer & Step Detection ——
+constexpr float        STEP_THRESHOLD      = 2.5f;
+constexpr unsigned long STEP_COOLDOWN_MS    = 300;
 
-// ─── WI-FI (STATION) SETTINGS ─────────────────────────────────────────────────
-// Replace with your network SSID/password
-static const char* __attribute__((unused)) WIFI_SSID     = "YOUR_SSID";
-static const char* __attribute__((unused)) WIFI_PASSWORD = "YOUR_PASSWORD";
-// TCP port for incoming text‐command connections
-#define WIFI_SERVER_PORT    80
+// —— Audio Input ——
+constexpr int SAMPLES         = 256;
+constexpr int SAMPLING_FREQ   = 16000;
 
-// ─── WI-FI (ACCESS POINT) SETTINGS ─────────────────────────────────────────────
-// If you’d rather host your own AP instead of joining an existing network:
-// SSID & password for your hotspot
-static const char* AP_SSID = "RAVECONTROLLER";
-static const char* AP_PASS = "ravecontroller";
-
-// ─── BLUETOOTH SETTINGS ────────────────────────────────────────────────────────
-// BLE device name shown to scanners
-#define BLE_DEVICE_NAME         "RP2040-LED"
-// UUID for your BLE command service & characteristic
-#define BLE_SERVICE_UUID        "12345678-1234-5678-1234-56789ABCDEF0"
-#define BLE_CHAR_CMD_UUID       "ABCDEFAB-1234-5678-1234-56789ABCDEF0"
-
-#endif // CONFIG_H
+// —— Heartbeat Effect ——
+enum class HeartbeatColor { RED, GREEN, BLUE };
+constexpr unsigned long HB_INTERVAL_MS = 2000;

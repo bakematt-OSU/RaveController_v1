@@ -8,9 +8,9 @@ extern volatile bool triggerRipple;
 
 namespace KineticRipple {
 
-bool rippleActive = false;
-unsigned long rippleStartTime = 0;
-RgbColor rippleColor;
+inline bool rippleActive = false;
+inline unsigned long rippleStartTime = 0;
+inline RgbColor rippleColor;
 // REMOVED: The hardcoded rippleWidth and rippleSpeed variables are now in PixelStrip.h
 
 inline void start(PixelStrip::Segment* seg, uint32_t color1, uint32_t color2) {

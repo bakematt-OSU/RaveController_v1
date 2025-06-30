@@ -29,10 +29,10 @@ inline byte qsub8(byte a, byte b) {
 const int MAX_LEDS = 300; // Must be at least as large as your LED_COUNT
 
 // Internal state array for the heat of each pixel
-static byte heat[MAX_LEDS];
+inline static byte heat[MAX_LEDS];
 
 // This helper function maps a heat temperature (0-255) to a fire-like color
-RgbColor HeatColor(byte temperature) {
+inline RgbColor HeatColor(byte temperature) {
     byte t192 = round((temperature / 255.0) * 191);
     byte heatramp = t192 & 0x3F; // 0..63
     heatramp <<= 2; // scale to 0..252

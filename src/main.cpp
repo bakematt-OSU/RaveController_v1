@@ -1,130 +1,48 @@
 #include <Arduino.h>
-#include <PDM.h>               // for on-board PDM mic
-#include <WiFiNINA.h>          // Wi-Fi
-#include <ArduinoBLE.h>        // BLE
-#include "Config.h"
+#include "config.h"
 #include "PixelStrip.h"
-#include "EffectsManager.h"
-#include "InputManager.h"
 #include "Triggers.h"
+#include <PDM.h>
+#include "Init.h"
+#include "Processes.h" 
 
-// ─── FFT / AUDIO SETTINGS ───────────────────────────────────────────────────────
-#define SAMPLES              64
-#define SAMPLING_FREQUENCY   16000
 
-// Audio buffer (filled in interrupt)
-volatile int16_t sampleBuffer[SAMPLES];
+// —— User-selected color globals (must match the externs in Processes.h) ——  
+uint8_t activeR = 255;
+uint8_t activeG = 255;
+uint8_t activeB = 255;
 
-// Create your trigger instance
+// —— Globals ——  
+PixelStrip strip(LED_PIN, LED_COUNT, BRIGHTNESS, SEGMENT_COUNT);
+PixelStrip::Segment* seg;
 AudioTrigger<SAMPLES> audioTrigger;
 
-// ─── TCP SERVER (over the AP) ─────────────────────────────────────────────────────
-WiFiServer server(WIFI_SERVER_PORT);
+float accelX, accelY, accelZ;
+volatile bool triggerRipple = false;
+volatile int16_t sampleBuffer[SAMPLES];
+volatile int    samplesRead;
+unsigned long   lastStepTime = 0;
+bool            debugAccel = false;
 
-// ─── CORE OBJECTS ─────────────────────────────────────────────────────────────────
-PixelStrip     strip(DATA_PIN, LED_COUNT, DEFAULT_BRIGHTNESS, NUM_SEGMENTS);
-EffectsManager effectsManager(strip);
-InputManager   inputManager;
+HeartbeatColor hbColor = HeartbeatColor::RED;
+unsigned long  lastHbChange = 0;
 
-// ─── BLE COMMAND SERVICE & CHARACTERISTIC ────────────────────────────────────────
-BLEService       cmdService(BLE_SERVICE_UUID);
-BLECharacteristic cmdChar( BLE_CHAR_CMD_UUID, BLEWrite, 256 );
-
-
-// ─── PDM DATA CALLBACK ────────────────────────────────────────────────────────────
-// Cast away 'volatile' to satisfy PDM.read(void*, int)
-void onPDMData() {
-    int avail = PDM.available();
-    if (avail > SAMPLES) avail = SAMPLES;
-    PDM.read((void*)sampleBuffer, avail);  // :contentReference[oaicite:0]{index=0}
-    for(int i = avail; i < SAMPLES; ++i) sampleBuffer[i] = 0;
-}
-
-
-// ─── AUDIO TRIGGER CALLBACK ──────────────────────────────────────────────────────
-void audioTriggerCallback(bool isActive, uint8_t brightness) {
-    if (isActive) {
-        // Use the correct PixelStrip API (not setBrightness)
-        strip.setActiveBrightness(brightness);  // :contentReference[oaicite:1]{index=1}
-    }
-}
-
-
+// —— Setup & Loop ——  
 void setup() {
-    // —— Serial for debug & direct commands
-    Serial.begin(SERIAL_BAUD_RATE);
-    while (!Serial);
-
-    // —— Start Wi-Fi Access Point (use AP_PASS, not AP_PASSWORD)
-    Serial.print("Starting AP \""); Serial.print(AP_SSID); Serial.print("\" …");
-    if (WiFi.beginAP(AP_SSID, AP_PASS) != WL_AP_LISTENING) {
-        Serial.println(" failed!");
-    } else {
-        Serial.println(" OK");
-        // WiFi.localIP() works for both station & soft-AP modes
-        IPAddress ip = WiFi.localIP();            // :contentReference[oaicite:2]{index=2}
-        Serial.print("AP IP: "); Serial.println(ip);
-        server.begin();
-    }
-
-    // —— Start BLE (no setWriteProperty() in ArduinoBLE)
-    if (BLE.begin()) {
-        Serial.println("BLE initialized");
-        BLE.setLocalName(BLE_DEVICE_NAME);
-        BLE.setAdvertisedService(cmdService);
-        cmdService.addCharacteristic(cmdChar);
-        BLE.addService(cmdService);
-        BLE.advertise();
-        Serial.println("BLE advertising");
-    } else {
-        Serial.println("BLE init failed");
-    }
-
-    // —— Initialize strip & effects
-    strip.begin();
-    effectsManager.registerDefaultEffects();
-    effectsManager.begin();
-    effectsManager.startDefaultEffect();
-
-    // —— Route text commands → EffectsManager
-    inputManager.setCommandCallback([&](const String &cmd){
-        effectsManager.handleCommand(cmd);
-    });
-
-    // —— Hook up audio trigger
-    audioTrigger.onTrigger(audioTriggerCallback);
-
-    // —— PDM mic input
-    PDM.onReceive(onPDMData);
-    if (!PDM.begin(1, SAMPLING_FREQUENCY)) {
-        Serial.println("PDM begin() failed");
-    }
+    initSerial();
+    initIMU();
+    initAudio();
+    initLEDs();
 }
 
 void loop() {
-    // —— Poll Serial
-    inputManager.loop();
+    processSerial();
+    processAudio();
+    processAccel();
+    updateHeartbeat();
 
-    // —— Poll Wi-Fi TCP clients
-    WiFiClient client = server.available();
-    if (client && client.connected()) {
-        String cmd = client.readStringUntil('\n');
-        cmd.trim();
-        if (cmd.length()) inputManager.receive(cmd);
+    for (auto* s : strip.getSegments()) {
+        s->update();
     }
-
-    // —— Poll BLE writes (cast the raw bytes to a C-string)
-    BLEDevice central = BLE.central();
-    if (central && central.connected() && cmdChar.written()) {
-        // cmdChar.value() returns const uint8_t*; cast to char* for String
-        String cmd = String((char*)cmdChar.value());
-        inputManager.receive(cmd);
-    }
-
-    // —— Feed samples into your AudioTrigger
-    audioTrigger.update(sampleBuffer);
-
-    // —— Run effects & push pixels
-    effectsManager.updateAll();
     strip.show();
 }

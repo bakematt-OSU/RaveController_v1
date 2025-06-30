@@ -44,6 +44,6 @@ namespace AccelMeter
         }
     }
 
-} // namespace AccelMeter
+}
 
-#endif // ACCELMETER_H
+#endif
