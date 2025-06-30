@@ -7,36 +7,41 @@
 #include <Arduino.h>
 #include <Arduino_LSM6DSOX.h>
 #include <WiFiNINA.h>
+#include <ArduinoBLE.h>                // ← needed for BLE.central(), BLE.setLocalName(), etc.
 #include <math.h>
 #include <PDM.h>
 #include "PixelStrip.h"
 #include "Triggers.h"
 #include "EffectLookup.h"
-#include <LittleFS_Mbed_RP2040.h> // brings in LittleFS + FS
-#include <stdio.h>                // for fopen/fputs/fclose
+#include <LittleFS_Mbed_RP2040.h>      // brings in LittleFS + FS
+#include <stdio.h>                     // for fopen/fputs/fclose
 
 // External globals defined in main.cpp
-extern volatile int16_t sampleBuffer[];
-extern volatile int samplesRead;
-extern float accelX, accelY, accelZ;
-extern volatile bool triggerRipple;
-extern unsigned long lastStepTime;
-extern bool debugAccel;
-extern PixelStrip strip;
+extern volatile int16_t    sampleBuffer[];
+extern volatile int        samplesRead;
+extern float               accelX, accelY, accelZ;
+extern volatile bool       triggerRipple;
+extern unsigned long       lastStepTime;
+extern bool                debugAccel;
+extern PixelStrip          strip;
 extern PixelStrip::Segment *seg;
 extern AudioTrigger<SAMPLES> audioTrigger;
-extern HeartbeatColor hbColor;
-extern unsigned long lastHbChange;
-extern uint8_t activeR, activeG, activeB;
+extern HeartbeatColor      hbColor;
+extern unsigned long       lastHbChange;
+extern uint8_t             activeR, activeG, activeB;
+
+// BLE characteristic defined in main.cpp
+extern BLECharacteristic    cmdCharacteristic;
+
 
 inline void handleCommandLine(const String &line)
 {
-    // TRIM WHITESPACE AND SPLIT COMMAND/ARGUMENTS
+    // — TRIM WHITESPACE AND SPLIT COMMAND/ARGUMENTS ——————————————
     String trimmed = line;
     trimmed.trim();
 
     int spaceIdx = trimmed.indexOf(' ');
-    String cmd = (spaceIdx >= 0) ? trimmed.substring(0, spaceIdx) : trimmed;
+    String cmd  = (spaceIdx >= 0) ? trimmed.substring(0, spaceIdx) : trimmed;
     String args = (spaceIdx >= 0) ? trimmed.substring(spaceIdx + 1) : String();
     cmd.toLowerCase();
 
@@ -49,7 +54,6 @@ inline void handleCommandLine(const String &line)
         seg->startEffect(PixelStrip::Segment::SegmentEffect::NONE);
         Serial.println("Active segment reset to 0 (full strip).");
     }
-
     // ADDSEGMENT <start> <end>: carve out a new segment
     else if (cmd == "addsegment")
     {
@@ -57,7 +61,7 @@ inline void handleCommandLine(const String &line)
         if (delim != -1)
         {
             int start = args.substring(0, delim).toInt();
-            int end = args.substring(delim + 1).toInt();
+            int end   = args.substring(delim + 1).toInt();
             if (end >= start)
             {
                 String name = "seg" + String(strip.getSegments().size());
@@ -79,7 +83,6 @@ inline void handleCommandLine(const String &line)
             Serial.println("Usage: addsegment <start> <end>");
         }
     }
-
     // SELECT <index>: switch which segment ‘seg’ points to
     else if (cmd == "select")
     {
@@ -95,7 +98,6 @@ inline void handleCommandLine(const String &line)
             Serial.println("Invalid segment index.");
         }
     }
-
     // SETCOLOR <r> <g> <b>: update the globals for your next effects
     else if (cmd == "setcolor")
     {
@@ -118,7 +120,6 @@ inline void handleCommandLine(const String &line)
             Serial.println("Usage: setcolor <r> <g> <b>");
         }
     }
-
     // SETEFFECT <name>: apply an effect
     else if (cmd == "seteffect")
     {
@@ -134,6 +135,7 @@ inline void handleCommandLine(const String &line)
             Serial.println(args);
         }
     }
+    // SETBTNAME <1–20 chars>: change the BLE Device Name
     else if (cmd == "setbtname")
     {
         args.trim();
@@ -145,12 +147,10 @@ inline void handleCommandLine(const String &line)
                 fputs(args.c_str(), f);
                 fputc('\n', f);
                 fclose(f);
-
                 // immediately bump the BLE name
                 BLE.stopAdvertise();
                 BLE.setLocalName(args.c_str());
                 BLE.advertise();
-
                 Serial.print("BT name set to “");
                 Serial.print(args);
                 Serial.println("”");
@@ -165,53 +165,7 @@ inline void handleCommandLine(const String &line)
             Serial.println("Usage: setbtname <1–20 chars>");
         }
     }
-
-    else if (cmd == "saveconfig")
-    {
-        StaticJsonDocument<1024> doc;
-        auto arr = doc.createNestedArray("segments");
-
-        for (auto *s : pixelStrip.getAllSegments())
-        {
-            JsonObject o = arr.createNestedObject();
-            o["id"] = s->id();
-            o["start"] = s->startIndex();
-            o["end"] = s->endIndex();
-            o["name"] = s->name().c_str();
-            // record which effect is running and its params
-            if (s->currentEffect() == Effect::RAINBOW)
-            {
-                o["effect"] = "rainbow";
-                o["speed"] = s->effectParam(); // however you store it
-            }
-            else if (s->currentEffect() == Effect::SOLID)
-            {
-                o["effect"] = "solid";
-                auto col = s->primaryColor();
-                auto cArr = o.createNestedArray("color");
-                cArr.add(col.R);
-                cArr.add(col.G);
-                cArr.add(col.B);
-            }
-            // …other effects…
-        }
-
-        if (saveConfig(doc))
-        {
-            Serial.println("✔️ Configuration saved");
-        }
-        else
-        {
-            Serial.println("❌ Save failed");
-        }
-    }
-    else if (cmd == "clearconfig")
-    {
-        LittleFS.remove(STATE_FILE);
-        Serial.println("✔️ Configuration cleared");
-    }
-
-    // UNKNOWN
+    // ─── catch-all for anything else ────────────────────────────────────────
     else
     {
         Serial.print("Unknown command: ");
@@ -219,32 +173,24 @@ inline void handleCommandLine(const String &line)
     }
 }
 
-// ——————————————
-// Process serial commands
-// ——————————————
+
 inline void processSerial()
 {
-    if (!Serial.available())
-        return;
+    if (!Serial.available()) return;
     String line = Serial.readStringUntil('\n');
     handleCommandLine(line);
 }
 
-// Process audio-triggered updates
 inline void processAudio()
 {
-    if (samplesRead <= 0)
-        return;
+    if (samplesRead <= 0) return;
     audioTrigger.update(sampleBuffer);
     samplesRead = 0;
 }
 
-// Process accelerometer data and detect steps
 inline void processAccel()
 {
-    if (!IMU.accelerationAvailable())
-        return;
-
+    if (!IMU.accelerationAvailable()) return;
     IMU.readAcceleration(accelX, accelY, accelZ);
     float mag = sqrt(accelX * accelX + accelY * accelY + accelZ * accelZ);
 
@@ -262,11 +208,9 @@ inline void processAccel()
     }
 }
 
-// Update RGB heartbeat LEDs
 inline void updateHeartbeat()
 {
-    if (millis() - lastHbChange < HB_INTERVAL_MS)
-        return;
+    if (millis() - lastHbChange < HB_INTERVAL_MS) return;
     lastHbChange = millis();
 
     // Turn off all heartbeat LEDs
@@ -277,31 +221,29 @@ inline void updateHeartbeat()
     // Cycle colors
     switch (hbColor)
     {
-    case HeartbeatColor::RED:
-        WiFiDrv::analogWrite(LEDR_PIN, 255);
-        hbColor = HeartbeatColor::GREEN;
-        break;
-    case HeartbeatColor::GREEN:
-        WiFiDrv::analogWrite(LEDG_PIN, 255);
-        hbColor = HeartbeatColor::BLUE;
-        break;
-    case HeartbeatColor::BLUE:
-        WiFiDrv::analogWrite(LEDB_PIN, 255);
-        hbColor = HeartbeatColor::RED;
-        break;
+        case HeartbeatColor::RED:
+            WiFiDrv::analogWrite(LEDR_PIN, 255);
+            hbColor = HeartbeatColor::GREEN;
+            break;
+        case HeartbeatColor::GREEN:
+            WiFiDrv::analogWrite(LEDG_PIN, 255);
+            hbColor = HeartbeatColor::BLUE;
+            break;
+        case HeartbeatColor::BLUE:
+            WiFiDrv::analogWrite(LEDB_PIN, 255);
+            hbColor = HeartbeatColor::RED;
+            break;
     }
 }
 
 inline void processBLE()
 {
     BLEDevice central = BLE.central();
-    if (!central)
-        return;
+    if (!central) return;
 
     while (central.connected())
     {
         BLE.poll();
-
         if (cmdCharacteristic.written())
         {
             String line((const char *)cmdCharacteristic.value(), cmdCharacteristic.valueLength());

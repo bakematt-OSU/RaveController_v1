@@ -34,16 +34,6 @@ void setup()
     initAudio();
     initLEDs();
     initFS();
-    initStateFS(); // mount again for state.json
-
-    // if there’s a saved state, restore segments+effects
-    StaticJsonDocument<1024> stateDoc;
-    if (loadConfig(stateDoc))
-    {
-        applyConfig(stateDoc);
-        Serial.println("✔️ Restored segment state");
-    }
-
     initBLE();
 }
 
@@ -55,9 +45,4 @@ void loop()
     processAccel();
     updateHeartbeat();
 
-    for (auto *s : strip.getSegments())
-    {
-        s->update();
-    }
-    strip.show();
 }
