@@ -226,31 +226,43 @@ inline void processAccel()
     }
 }
 
+
+// --- Heartbeat Effect State Variables ---
+enum HeartbeatColorState
+{
+    HEARTBEAT_RED,
+    HEARTBEAT_GREEN,
+    HEARTBEAT_BLUE
+};
+HeartbeatColorState heartbeatColorState = HEARTBEAT_RED;
+unsigned long lastHeartbeatColorChange = 0;
+
+
 inline void updateHeartbeat()
 {
-    if (millis() - lastHbChange < HB_INTERVAL_MS)
+    if (millis() - lastHeartbeatColorChange < HB_INTERVAL_MS)
+    {
         return;
-    lastHbChange = millis();
+    }
+    lastHeartbeatColorChange = millis();
 
-    // Turn off all heartbeat LEDs
     WiFiDrv::analogWrite(LEDR_PIN, 0);
     WiFiDrv::analogWrite(LEDG_PIN, 0);
     WiFiDrv::analogWrite(LEDB_PIN, 0);
 
-    // Cycle colors
-    switch (hbColor)
+    switch (heartbeatColorState)
     {
-    case HeartbeatColor::RED:
+    case HEARTBEAT_RED:
         WiFiDrv::analogWrite(LEDR_PIN, 255);
-        hbColor = HeartbeatColor::GREEN;
+        heartbeatColorState = HEARTBEAT_GREEN;
         break;
-    case HeartbeatColor::GREEN:
+    case HEARTBEAT_GREEN:
         WiFiDrv::analogWrite(LEDG_PIN, 255);
-        hbColor = HeartbeatColor::BLUE;
+        heartbeatColorState = HEARTBEAT_BLUE;
         break;
-    case HeartbeatColor::BLUE:
+    case HEARTBEAT_BLUE:
         WiFiDrv::analogWrite(LEDB_PIN, 255);
-        hbColor = HeartbeatColor::RED;
+        heartbeatColorState = HEARTBEAT_RED;
         break;
     }
 }

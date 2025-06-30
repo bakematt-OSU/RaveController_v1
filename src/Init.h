@@ -96,21 +96,21 @@ inline void initLEDs() {
     }
 
     // Initialize strip…
-    // strip.begin();
-    // seg = strip.getSegments()[0];
-    // seg->begin();
-    // seg->startEffect(PixelStrip::Segment::SegmentEffect::SOLID);
     strip.begin();
-    strip.clear();                 // clear any garbage
     seg = strip.getSegments()[0];
     seg->begin();
-    // — show your default static color at startup —
-    {
-      uint32_t c = strip.Color(128, 0, 128);
-      for (uint16_t i = seg->startIndex(); i <= seg->endIndex(); ++i)
-        strip.setPixel(i, c);
-      strip.show();
-    }
+    seg->startEffect(PixelStrip::Segment::SegmentEffect::NONE);
+    // strip.begin();
+    // strip.clear();                 // clear any garbage
+    // seg = strip.getSegments()[0];
+    // seg->begin();
+    // // — show your default static color at startup —
+    // {
+    //   uint32_t c = strip.Color(128, 0, 128);
+    //   for (uint16_t i = seg->startIndex(); i <= seg->endIndex(); ++i)
+    //     strip.setPixel(i, c);
+    //   strip.show();
+    // }
 }
 // inline void initLEDs() {
 //     // Turn off heartbeat LEDs
