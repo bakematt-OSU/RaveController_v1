@@ -1,6 +1,3 @@
-// Processes.h
-// Declarations and implementations for processing routines
-
 #pragma once
 
 #include "config.h"
@@ -12,8 +9,10 @@
 #include "PixelStrip.h"
 #include "Triggers.h"
 #include "EffectLookup.h"
-#include <LittleFS_Mbed_RP2040.h> // brings in LittleFS + FS
-#include <stdio.h>                // for fopen/fputs/fclose
+#include <LittleFS_Mbed_RP2040.h> // LittleFS + FS
+#include <FS.h>                   // File system interface
+#include <ArduinoBLE.h>
+#include <ArduinoJson.h> // For saveconfig serialization
 
 // External globals defined in main.cpp
 extern volatile int16_t sampleBuffer[];
@@ -31,43 +30,34 @@ extern uint8_t activeR, activeG, activeB;
 
 inline void handleCommandLine(const String &line)
 {
-    // TRIM WHITESPACE AND SPLIT COMMAND/ARGUMENTS
+    // Trim and split
     String trimmed = line;
     trimmed.trim();
-
     int spaceIdx = trimmed.indexOf(' ');
     String cmd = (spaceIdx >= 0) ? trimmed.substring(0, spaceIdx) : trimmed;
     String args = (spaceIdx >= 0) ? trimmed.substring(spaceIdx + 1) : String();
     cmd.toLowerCase();
 
-    // CLEARSEGMENTS: remove all user‐added segments, reset to full strip
     if (cmd == "clearsegments")
     {
         Serial.println("Clearing user-defined segments.");
         strip.clearUserSegments();
         seg = strip.getSegments()[0];
         seg->startEffect(PixelStrip::Segment::SegmentEffect::NONE);
-        Serial.println("Active segment reset to 0 (full strip).");
     }
-
-    // ADDSEGMENT <start> <end>: carve out a new segment
     else if (cmd == "addsegment")
     {
-        int delim = args.indexOf(' ');
-        if (delim != -1)
+        int d = args.indexOf(' ');
+        if (d > 0)
         {
-            int start = args.substring(0, delim).toInt();
-            int end = args.substring(delim + 1).toInt();
+            int start = args.substring(0, d).toInt();
+            int end = args.substring(d + 1).toInt();
             if (end >= start)
             {
                 String name = "seg" + String(strip.getSegments().size());
                 strip.addSection(start, end, name);
-                Serial.print("Added segment #");
-                Serial.print(strip.getSegments().size() - 1);
-                Serial.print(" from ");
-                Serial.print(start);
-                Serial.print(" to ");
-                Serial.println(end);
+                Serial.print("Added segment ");
+                Serial.println(name);
             }
             else
             {
@@ -79,33 +69,29 @@ inline void handleCommandLine(const String &line)
             Serial.println("Usage: addsegment <start> <end>");
         }
     }
-
-    // SELECT <index>: switch which segment ‘seg’ points to
     else if (cmd == "select")
     {
-        int idxArg = args.toInt();
-        if (idxArg >= 0 && idxArg < (int)strip.getSegments().size())
+        int idx = args.toInt();
+        if (idx >= 0 && idx < (int)strip.getSegments().size())
         {
-            seg = strip.getSegments()[idxArg];
+            seg = strip.getSegments()[idx];
             Serial.print("Selected segment ");
-            Serial.println(idxArg);
+            Serial.println(idx);
         }
         else
         {
             Serial.println("Invalid segment index.");
         }
     }
-
-    // SETCOLOR <r> <g> <b>: update the globals for your next effects
     else if (cmd == "setcolor")
     {
-        int a = args.indexOf(' ');
-        int b = args.indexOf(' ', a + 1);
-        if (a > 0 && b > a)
+        int d1 = args.indexOf(' ');
+        int d2 = args.indexOf(' ', d1 + 1);
+        if (d1 > 0 && d2 > d1)
         {
-            activeR = args.substring(0, a).toInt();
-            activeG = args.substring(a + 1, b).toInt();
-            activeB = args.substring(b + 1).toInt();
+            activeR = args.substring(0, d1).toInt();
+            activeG = args.substring(d1 + 1, d2).toInt();
+            activeB = args.substring(d2 + 1).toInt();
             Serial.print("Color set to R=");
             Serial.print(activeR);
             Serial.print(" G=");
@@ -118,10 +104,9 @@ inline void handleCommandLine(const String &line)
             Serial.println("Usage: setcolor <r> <g> <b>");
         }
     }
-
-    // SETEFFECT <name>: apply an effect
     else if (cmd == "seteffect")
     {
+        // Use EffectLookup to map name to enum and apply
         EffectType effect = effectFromString(args);
         if (effect == EffectType::UNKNOWN)
         {
@@ -139,79 +124,65 @@ inline void handleCommandLine(const String &line)
         args.trim();
         if (args.length() >= 1 && args.length() <= 20)
         {
-            FILE *f = fopen(BT_NAME_FILE, "w");
+            File f = LittleFS.open(BT_NAME_FILE, "w");
             if (f)
             {
-                fputs(args.c_str(), f);
-                fputc('\n', f);
-                fclose(f);
-
-                // immediately bump the BLE name
+                f.println(args);
+                f.close();
                 BLE.stopAdvertise();
                 BLE.setLocalName(args.c_str());
                 BLE.advertise();
-
-                Serial.print("BT name set to “");
-                Serial.print(args);
-                Serial.println("”");
+                Serial.print("BT name set to ");
+                Serial.println(args);
             }
             else
             {
-                Serial.println("Error: cannot open file for write");
+                Serial.println("Error opening BT name file.");
             }
         }
         else
         {
-            Serial.println("Usage: setbtname <1–20 chars>");
+            Serial.println("Usage: setbtname <1-20 chars>");
         }
     }
-
     else if (cmd == "saveconfig")
     {
         StaticJsonDocument<1024> doc;
         auto arr = doc.createNestedArray("segments");
-
-        for (auto *s : pixelStrip.getAllSegments())
+        for (auto *s : strip.getSegments())
         {
             JsonObject o = arr.createNestedObject();
             o["id"] = s->id();
             o["start"] = s->startIndex();
             o["end"] = s->endIndex();
             o["name"] = s->name().c_str();
-            // record which effect is running and its params
-            if (s->currentEffect() == Effect::RAINBOW)
+            // record current effect
+            auto e = s->currentEffect();
+            if (e == PixelStrip::Segment::SegmentEffect::RAINBOW)
             {
                 o["effect"] = "rainbow";
-                o["speed"] = s->effectParam(); // however you store it
+                o["speed"] = s->effectParam();
             }
-            else if (s->currentEffect() == Effect::SOLID)
+            else if (e == PixelStrip::Segment::SegmentEffect::SOLID)
             {
                 o["effect"] = "solid";
-                auto col = s->primaryColor();
-                auto cArr = o.createNestedArray("color");
-                cArr.add(col.R);
-                cArr.add(col.G);
-                cArr.add(col.B);
+                auto c = s->primaryColor();
+                auto carr = o.createNestedArray("color");
+                carr.add(c.R);
+                carr.add(c.G);
+                carr.add(c.B);
             }
-            // …other effects…
         }
-
         if (saveConfig(doc))
-        {
-            Serial.println("✔️ Configuration saved");
-        }
+            Serial.println("Configuration saved");
         else
-        {
-            Serial.println("❌ Save failed");
-        }
+            Serial.println("Save failed");
     }
     else if (cmd == "clearconfig")
     {
         LittleFS.remove(STATE_FILE);
-        Serial.println("✔️ Configuration cleared");
+        Serial.println("Configuration cleared");
     }
-
-    // UNKNOWN
     else
     {
         Serial.print("Unknown command: ");
@@ -219,9 +190,7 @@ inline void handleCommandLine(const String &line)
     }
 }
 
-// ——————————————
-// Process serial commands
-// ——————————————
+// Process serial input
 inline void processSerial()
 {
     if (!Serial.available())
@@ -239,22 +208,19 @@ inline void processAudio()
     samplesRead = 0;
 }
 
-// Process accelerometer data and detect steps
+// Process accelerometer data
 inline void processAccel()
 {
     if (!IMU.accelerationAvailable())
         return;
-
     IMU.readAcceleration(accelX, accelY, accelZ);
     float mag = sqrt(accelX * accelX + accelY * accelY + accelZ * accelZ);
-
     if (debugAccel && (millis() - lastHbChange > 250))
     {
         Serial.print("Accel: ");
         Serial.println(mag);
         lastHbChange = millis();
     }
-
     if (mag > STEP_THRESHOLD && millis() - lastStepTime > STEP_COOLDOWN_MS)
     {
         triggerRipple = true;
@@ -262,19 +228,15 @@ inline void processAccel()
     }
 }
 
-// Update RGB heartbeat LEDs
+// Heartbeat LED cycle
 inline void updateHeartbeat()
 {
     if (millis() - lastHbChange < HB_INTERVAL_MS)
         return;
     lastHbChange = millis();
-
-    // Turn off all heartbeat LEDs
     WiFiDrv::analogWrite(LEDR_PIN, 0);
     WiFiDrv::analogWrite(LEDG_PIN, 0);
     WiFiDrv::analogWrite(LEDB_PIN, 0);
-
-    // Cycle colors
     switch (hbColor)
     {
     case HeartbeatColor::RED:
@@ -292,22 +254,18 @@ inline void updateHeartbeat()
     }
 }
 
+// Process BLE commands
 inline void processBLE()
 {
     BLEDevice central = BLE.central();
     if (!central)
         return;
-
     while (central.connected())
     {
         BLE.poll();
-
         if (cmdCharacteristic.written())
         {
             String line((const char *)cmdCharacteristic.value(), cmdCharacteristic.valueLength());
-            line.trim();
-            Serial.print("[BLE] ");
-            Serial.println(line);
             handleCommandLine(line);
         }
     }

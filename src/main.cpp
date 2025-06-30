@@ -5,6 +5,7 @@
 #include <PDM.h>
 #include "Init.h"
 #include "Processes.h"
+#include "EffectRegistry.h"
 
 // —— User-selected color globals (must match the externs in Processes.h) ——
 uint8_t activeR = 255;
@@ -30,6 +31,7 @@ unsigned long lastHbChange = 0;
 void setup()
 {
     initSerial();
+    listAllEffects();
     initIMU();
     initAudio();
     initLEDs();

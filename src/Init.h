@@ -13,6 +13,7 @@
 #include <ArduinoBLE.h>
 #include <LittleFS_Mbed_RP2040.h>  
 #include <stdio.h> 
+#include "EffectRegistry.h"
 
 // — where to keep the name on flash —
 #define BT_NAME_FILE     "/btname.txt"
@@ -134,4 +135,13 @@ inline void initBLE() {
   Serial.print("BLE Ready as “");
   Serial.print(btName);
   Serial.println("”");
+}
+
+
+inline void listAllEffects() {
+  Serial.println("=== Registered effects ===");
+  for (auto &kv : registry()) {
+    Serial.println(" • " + kv.first);
+  }
+  Serial.println("==========================");
 }
