@@ -33,10 +33,12 @@ void setup() {
     initIMU();
     initAudio();
     initLEDs();
+    initBLE();
 }
 
 void loop() {
     processSerial();
+    processBLE();
     processAudio();
     processAccel();
     updateHeartbeat();

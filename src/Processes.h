@@ -27,23 +27,16 @@ extern HeartbeatColor hbColor;
 extern unsigned long lastHbChange;
 extern uint8_t activeR, activeG, activeB;
 
-// ——————————————
-// Process serial commands
-// ——————————————
-inline void processSerial()
-{
-    // WAIT FOR SERIAL INPUT
-    if (!Serial.available())
-        return;
 
-    // READ THE COMMAND LINE
-    String line = Serial.readStringUntil('\n');
-    line.trim();
 
-    // SPLIT INTO COMMAND AND ARGUMENTS
-    int spaceIdx = line.indexOf(' ');
-    String cmd = (spaceIdx >= 0) ? line.substring(0, spaceIdx) : line;
-    String args = (spaceIdx >= 0) ? line.substring(spaceIdx + 1) : String();
+inline void handleCommandLine(const String& line) {
+    // TRIM WHITESPACE AND SPLIT COMMAND/ARGUMENTS
+    String trimmed = line;
+    trimmed.trim();
+
+    int spaceIdx = trimmed.indexOf(' ');
+    String cmd = (spaceIdx >= 0) ? trimmed.substring(0, spaceIdx) : trimmed;
+    String args = (spaceIdx >= 0) ? trimmed.substring(spaceIdx + 1) : String();
     cmd.toLowerCase();
 
     // CLEARSEGMENTS: remove all user‐added segments, reset to full strip
@@ -55,6 +48,7 @@ inline void processSerial()
         seg->startEffect(PixelStrip::Segment::SegmentEffect::NONE);
         Serial.println("Active segment reset to 0 (full strip).");
     }
+
     // ADDSEGMENT <start> <end>: carve out a new segment
     else if (cmd == "addsegment")
     {
@@ -84,6 +78,7 @@ inline void processSerial()
             Serial.println("Usage: addsegment <start> <end>");
         }
     }
+
     // SELECT <index>: switch which segment ‘seg’ points to
     else if (cmd == "select")
     {
@@ -99,6 +94,7 @@ inline void processSerial()
             Serial.println("Invalid segment index.");
         }
     }
+
     // SETCOLOR <r> <g> <b>: update the globals for your next effects
     else if (cmd == "setcolor")
     {
@@ -106,7 +102,6 @@ inline void processSerial()
         int b = args.indexOf(' ', a + 1);
         if (a > 0 && b > a)
         {
-            extern uint8_t activeR, activeG, activeB;
             activeR = args.substring(0, a).toInt();
             activeG = args.substring(a + 1, b).toInt();
             activeB = args.substring(b + 1).toInt();
@@ -122,6 +117,8 @@ inline void processSerial()
             Serial.println("Usage: setcolor <r> <g> <b>");
         }
     }
+
+    // SETEFFECT <name>: apply an effect
     else if (cmd == "seteffect")
     {
         EffectType effect = effectFromString(args);
@@ -136,12 +133,23 @@ inline void processSerial()
             Serial.println(args);
         }
     }
+
     // UNKNOWN
     else
     {
         Serial.print("Unknown command: ");
         Serial.println(cmd);
     }
+}
+
+// ——————————————
+// Process serial commands
+// ——————————————
+inline void processSerial()
+{
+    if (!Serial.available()) return;
+    String line = Serial.readStringUntil('\n');
+    handleCommandLine(line);
 }
 
 // Process audio-triggered updates
@@ -203,5 +211,22 @@ inline void updateHeartbeat()
         WiFiDrv::analogWrite(LEDB_PIN, 255);
         hbColor = HeartbeatColor::RED;
         break;
+    }
+}
+
+inline void processBLE() {
+    BLEDevice central = BLE.central();
+    if (!central) return;
+
+    while (central.connected()) {
+        BLE.poll();
+
+        if (cmdCharacteristic.written()) {
+            String line((const char*)cmdCharacteristic.value(), cmdCharacteristic.valueLength());
+            line.trim();
+            Serial.print("[BLE] ");
+            Serial.println(line);
+            handleCommandLine(line);
+        }
     }
 }

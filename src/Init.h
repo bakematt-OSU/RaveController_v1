@@ -10,6 +10,7 @@
 #include <WiFiNINA.h>
 #include "PixelStrip.h"
 #include "Triggers.h"
+#include <ArduinoBLE.h>
 
 // Externally defined globals (from main.cpp)
 extern volatile int16_t       sampleBuffer[];
@@ -73,4 +74,21 @@ inline void initLEDs() {
     seg = strip.getSegments()[0];
     seg->begin();
     seg->startEffect(PixelStrip::Segment::SegmentEffect::NONE);
+}
+
+
+BLEService ledService("180A"); // Custom LED service
+BLECharacteristic cmdCharacteristic("2A57", BLEWrite, 100); // Write-only command channel
+
+inline void initBLE() {
+    if (!BLE.begin()) {
+        Serial.println("BLE init failed!");
+        while (1);
+    }
+    BLE.setLocalName("RP2040-LED");
+    BLE.setAdvertisedService(ledService);
+    ledService.addCharacteristic(cmdCharacteristic);
+    BLE.addService(ledService);
+    BLE.advertise();
+    Serial.println("BLE Ready and Advertising.");
 }
