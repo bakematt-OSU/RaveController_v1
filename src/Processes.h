@@ -7,43 +7,45 @@
 #include <Arduino.h>
 #include <Arduino_LSM6DSOX.h>
 #include <WiFiNINA.h>
-#include <ArduinoBLE.h>                // ← needed for BLE.central(), BLE.setLocalName(), etc.
+#include <ArduinoBLE.h> // ← needed for BLE.central(), BLE.setLocalName(), etc.
 #include <math.h>
 #include <PDM.h>
 #include "PixelStrip.h"
 #include "Triggers.h"
 #include "EffectLookup.h"
-#include <LittleFS_Mbed_RP2040.h>      // brings in LittleFS + FS
-#include <stdio.h>                     // for fopen/fputs/fclose
+#include <LittleFS_Mbed_RP2040.h> // brings in LittleFS + FS
+#include <stdio.h>                // for fopen/fputs/fclose
 
 // External globals defined in main.cpp
-extern volatile int16_t    sampleBuffer[];
-extern volatile int        samplesRead;
-extern float               accelX, accelY, accelZ;
-extern volatile bool       triggerRipple;
-extern unsigned long       lastStepTime;
-extern bool                debugAccel;
-extern PixelStrip          strip;
+extern volatile int16_t sampleBuffer[];
+extern volatile int samplesRead;
+extern float accelX, accelY, accelZ;
+extern volatile bool triggerRipple;
+extern unsigned long lastStepTime;
+extern bool debugAccel;
+extern PixelStrip strip;
 extern PixelStrip::Segment *seg;
 extern AudioTrigger<SAMPLES> audioTrigger;
-extern HeartbeatColor      hbColor;
-extern unsigned long       lastHbChange;
-extern uint8_t             activeR, activeG, activeB;
+extern HeartbeatColor hbColor;
+extern unsigned long lastHbChange;
+extern uint8_t activeR, activeG, activeB;
 
 // BLE characteristic defined in main.cpp
-extern BLECharacteristic    cmdCharacteristic;
-
+extern BLECharacteristic cmdCharacteristic;
 
 inline void handleCommandLine(const String &line)
 {
+    Serial.println("HANDLE COMMAND LINE: ");
     // — TRIM WHITESPACE AND SPLIT COMMAND/ARGUMENTS ——————————————
     String trimmed = line;
     trimmed.trim();
 
     int spaceIdx = trimmed.indexOf(' ');
-    String cmd  = (spaceIdx >= 0) ? trimmed.substring(0, spaceIdx) : trimmed;
+    String cmd = (spaceIdx >= 0) ? trimmed.substring(0, spaceIdx) : trimmed;
     String args = (spaceIdx >= 0) ? trimmed.substring(spaceIdx + 1) : String();
     cmd.toLowerCase();
+    Serial.print("Command: ");
+    Serial.println(cmd);
 
     // CLEARSEGMENTS: remove all user‐added segments, reset to full strip
     if (cmd == "clearsegments")
@@ -61,7 +63,7 @@ inline void handleCommandLine(const String &line)
         if (delim != -1)
         {
             int start = args.substring(0, delim).toInt();
-            int end   = args.substring(delim + 1).toInt();
+            int end = args.substring(delim + 1).toInt();
             if (end >= start)
             {
                 String name = "seg" + String(strip.getSegments().size());
@@ -173,24 +175,40 @@ inline void handleCommandLine(const String &line)
     }
 }
 
-
 inline void processSerial()
 {
-    if (!Serial.available()) return;
+    if (!Serial.available())
+        return;
+
+    // read one line (up to '\n')
     String line = Serial.readStringUntil('\n');
+    line.trim(); // strip any stray \r or spaces
+
+    // acknowledge receipt
+    Serial.print(F("Received command: "));
+    Serial.println(line);
+
+    // dispatch it
     handleCommandLine(line);
+
+    // final confirmation
+    Serial.print(F("Command processed: "));
+    Serial.print(line);
+    Serial.println(F("→ OK"));
 }
 
 inline void processAudio()
 {
-    if (samplesRead <= 0) return;
+    if (samplesRead <= 0)
+        return;
     audioTrigger.update(sampleBuffer);
     samplesRead = 0;
 }
 
 inline void processAccel()
 {
-    if (!IMU.accelerationAvailable()) return;
+    if (!IMU.accelerationAvailable())
+        return;
     IMU.readAcceleration(accelX, accelY, accelZ);
     float mag = sqrt(accelX * accelX + accelY * accelY + accelZ * accelZ);
 
@@ -210,7 +228,8 @@ inline void processAccel()
 
 inline void updateHeartbeat()
 {
-    if (millis() - lastHbChange < HB_INTERVAL_MS) return;
+    if (millis() - lastHbChange < HB_INTERVAL_MS)
+        return;
     lastHbChange = millis();
 
     // Turn off all heartbeat LEDs
@@ -221,25 +240,26 @@ inline void updateHeartbeat()
     // Cycle colors
     switch (hbColor)
     {
-        case HeartbeatColor::RED:
-            WiFiDrv::analogWrite(LEDR_PIN, 255);
-            hbColor = HeartbeatColor::GREEN;
-            break;
-        case HeartbeatColor::GREEN:
-            WiFiDrv::analogWrite(LEDG_PIN, 255);
-            hbColor = HeartbeatColor::BLUE;
-            break;
-        case HeartbeatColor::BLUE:
-            WiFiDrv::analogWrite(LEDB_PIN, 255);
-            hbColor = HeartbeatColor::RED;
-            break;
+    case HeartbeatColor::RED:
+        WiFiDrv::analogWrite(LEDR_PIN, 255);
+        hbColor = HeartbeatColor::GREEN;
+        break;
+    case HeartbeatColor::GREEN:
+        WiFiDrv::analogWrite(LEDG_PIN, 255);
+        hbColor = HeartbeatColor::BLUE;
+        break;
+    case HeartbeatColor::BLUE:
+        WiFiDrv::analogWrite(LEDB_PIN, 255);
+        hbColor = HeartbeatColor::RED;
+        break;
     }
 }
 
 inline void processBLE()
 {
     BLEDevice central = BLE.central();
-    if (!central) return;
+    if (!central)
+        return;
 
     while (central.connected())
     {

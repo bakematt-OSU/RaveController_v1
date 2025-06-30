@@ -27,8 +27,23 @@ extern PixelStrip::Segment*   seg;
 
 // Initialize serial communication
 inline void initSerial() {
-    Serial.begin(115200);
-    while (!Serial) { /* wait for port */ }
+  Serial.begin(115200);
+  unsigned long startTime = millis();
+  const unsigned long timeoutMs = 5000;  // adjust as needed
+
+  // wait up to timeoutMs for the host to open the Serial port
+  while (!Serial && (millis() - startTime < timeoutMs)) {
+    // you can blink an LED here or just spin
+    delay(10);
+  }
+
+  if (!Serial) {
+    // Serial never came up—optional fallback
+    // e.g. blink an error LED or send via another interface
+  } else {
+    // Serial is ready
+    Serial.println(F("Serial ready"));
+  }
 }
 
 // Initialize IMU sensor
@@ -63,6 +78,11 @@ inline void initAudio() {
 
 // Initialize LED strip and heartbeat LEDs
 inline void initLEDs() {
+    // — configure the NINA LED pins as outputs —
+    WiFiDrv::pinMode(LEDR_PIN, OUTPUT);
+    WiFiDrv::pinMode(LEDG_PIN, OUTPUT);
+    WiFiDrv::pinMode(LEDB_PIN, OUTPUT);
+
     // Turn off heartbeat LEDs
     WiFiDrv::analogWrite(LEDR_PIN, 0);
     WiFiDrv::analogWrite(LEDG_PIN, 0);
@@ -75,12 +95,31 @@ inline void initLEDs() {
         while (true) { /* halt */ }
     }
 
-    // Initialize strip and first segment
+    // Initialize strip…
     strip.begin();
     seg = strip.getSegments()[0];
     seg->begin();
     seg->startEffect(PixelStrip::Segment::SegmentEffect::NONE);
 }
+// inline void initLEDs() {
+//     // Turn off heartbeat LEDs
+//     WiFiDrv::analogWrite(LEDR_PIN, 0);
+//     WiFiDrv::analogWrite(LEDG_PIN, 0);
+//     WiFiDrv::analogWrite(LEDB_PIN, 0);
+
+//     // Check WiFi module
+//     if (WiFi.status() == WL_NO_MODULE) {
+//         Serial.println("WiFi module failed!");
+//         WiFiDrv::analogWrite(LEDR_PIN, 255);
+//         while (true) { /* halt */ }
+//     }
+
+//     // Initialize strip and first segment
+//     strip.begin();
+//     seg = strip.getSegments()[0];
+//     seg->begin();
+//     seg->startEffect(PixelStrip::Segment::SegmentEffect::NONE);
+// }
 
 
 BLEService ledService("180A"); // Custom LED service
