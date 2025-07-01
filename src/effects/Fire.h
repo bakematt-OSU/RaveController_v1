@@ -4,95 +4,66 @@
 #include "../PixelStrip.h"
 
 namespace Fire {
-
-// --- ADDED: Helper functions to replace missing library functions ---
-
-// qadd8: Adds two bytes with saturation at 255.
-inline byte qadd8(byte a, byte b) {
-    unsigned int sum = a + b;
-    if (sum > 255) {
-        return 255;
+    // --- Helper functions to replace missing library functions ---
+    inline byte qadd8(byte a, byte b) {
+        unsigned int s = a + b;
+        return s > 255 ? 255 : byte(s);
     }
-    return static_cast<byte>(sum);
-}
+    inline byte qsub8(byte a, byte b) { return b > a ? 0 : a - b; }
 
-// qsub8: Subtracts one byte from another with saturation at 0.
-inline byte qsub8(byte a, byte b) {
-    if (b > a) {
-        return 0;
-    }
-    return a - b;
-}
+    // --- Effect-specific constants ---
+    const int MAX_LEDS = 300;
+    static byte heat[MAX_LEDS];
 
-
-// --- Effect-specific constants you can tweak ---
-const int MAX_LEDS = 300; // Must be at least as large as your LED_COUNT
-
-// Internal state array for the heat of each pixel
-inline static byte heat[MAX_LEDS];
-
-// This helper function maps a heat temperature (0-255) to a fire-like color
-inline RgbColor HeatColor(byte temperature) {
-    byte t192 = round((temperature / 255.0) * 191);
-    byte heatramp = t192 & 0x3F; // 0..63
-    heatramp <<= 2; // scale to 0..252
-    if( t192 > 0x80) { // 128
-        return RgbColor(255, 255, heatramp);
-    } else if( t192 > 0x40 ) { // 64
-        return RgbColor(255, heatramp, 0);
-    } else { // 0..63
-        return RgbColor(heatramp, 0, 0);
-    }
-}
-
-inline void start(PixelStrip::Segment* seg, uint32_t color1, uint32_t color2) {
-    seg->setEffect(PixelStrip::Segment::SegmentEffect::FIRE);
-    seg->active = true;
-    seg->interval = (color1 > 0) ? color1 : 15; // Default to 15ms delay
-
-    // If a value for Sparking was passed, use it. Otherwise, keep the default.
-    if (color1 > 0 && color1 <= 255) {
-        seg->fireSparking = color1;
-    }
-    // If a value for Cooling was passed, use it. Otherwise, keep the default.
-    if (color2 > 0 && color2 <= 100) {
-        seg->fireCooling = color2;
-    }
-}
-
-inline void update(PixelStrip::Segment* seg) {
-    if (!seg->active) return;
-
-    if (millis() - seg->lastUpdate < seg->interval) return;
-    seg->lastUpdate = millis();
-
-    int start = seg->startIndex();
-    int end = seg->endIndex();
-    int len = (end - start + 1);
-
-    // Step 1. Cool down every cell a little
-    for (int i = start; i <= end; i++) {
-      heat[i] = qsub8(heat[i], random(0, ((seg->fireCooling * 10) / len) + 2));
-    }
-  
-    // Step 2. Heat from each cell drifts 'up' and diffuses a little
-    for (int k = end; k >= start + 2; k--) {
-      heat[k] = (heat[k - 1] + heat[k - 2] + heat[k - 2]) / 3;
-    }
-    
-    // Step 3. Randomly ignite new 'sparks' of heat at the bottom
-    if (random(255) < seg->fireSparking) {
-      int y = start + random(7);
-      heat[y] = qadd8(heat[y], random(160, 255));
+    // Map a heat value (0-255) to a fire-like RGB color
+    inline RgbColor HeatColor(byte t) {
+        byte t192 = round((t / 255.0) * 191);
+        byte ramp = (t192 & 0x3F) << 2;
+        if (t192 > 0x80)
+            return RgbColor(255, 255, ramp);
+        else if (t192 > 0x40)
+            return RgbColor(255, ramp, 0);
+        else
+            return RgbColor(ramp, 0, 0);
     }
 
-    // Step 4. Map from heat cells to LED colors
-    for (int j = start; j <= end; j++) {
-      RgbColor color = HeatColor(heat[j]);
-      seg->getParent().getStrip().SetPixelColor(j, color);
+    // Start the fire effect: ignore color parameters for interval, use defaults
+    inline void start(PixelStrip::Segment* seg, uint32_t c1, uint32_t c2) {
+        seg->setEffect(PixelStrip::Segment::SegmentEffect::FIRE);
+        seg->active = true;
+        // Always run updates every ~15ms
+        seg->interval = 15;
+        // Allow overriding spark and cooling if values are small
+        if (c1 > 0 && c1 <= 255) seg->fireSparking = (uint8_t)c1;
+        if (c2 > 0 && c2 <= 100) seg->fireCooling = (uint8_t)c2;
+    }
+
+    // Update the fire effect: cool, diffuse, spark, and map to LEDs
+    inline void update(PixelStrip::Segment* seg) {
+        if (!seg->active || (millis() - seg->lastUpdate < seg->interval)) return;
+        seg->lastUpdate = millis();
+        int s = seg->startIndex(), e = seg->endIndex(), len = e - s + 1;
+
+        // Step 1. Cool down every cell a little
+        for (int i = s; i <= e; ++i) {
+            heat[i] = qsub8(heat[i], random(0, ((seg->fireCooling * 10) / len) + 2));
+        }
+        // Step 2. Heat diffusion
+        for (int k = e; k >= s + 2; --k) {
+            heat[k] = (heat[k - 1] + heat[k - 2] + heat[k - 2]) / 3;
+        }
+        // Step 3. Sparking
+        if (random(255) < seg->fireSparking) {
+            int y = s + random(7);
+            heat[y] = qadd8(heat[y], random(160, 255));
+        }
+        // Step 4. Map from heat to LED colors
+        for (int j = s; j <= e; ++j) {
+            RgbColor col = HeatColor(heat[j]);
+            uint32_t raw = seg->getParent().Color(col.R, col.G, col.B);
+            seg->getParent().setPixel(j, raw);
+        }
     }
 }
 
-}
-
-#endif
+#endif // FIRE_H

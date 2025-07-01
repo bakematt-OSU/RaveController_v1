@@ -100,8 +100,8 @@ String PixelStrip::Segment::getName() const { return name; }
 uint8_t PixelStrip::Segment::getId() const { return id; }
 
 void PixelStrip::Segment::begin() { clear(); }
-void PixelStrip::Segment::setBrightness(uint8_t b) { brightness = b; }
-uint8_t PixelStrip::Segment::getBrightness() const { return brightness; }
+// void PixelStrip::Segment::setBrightness(uint8_t b) { brightness = b; }
+// uint8_t PixelStrip::Segment::getBrightness() const { return brightness; }
 
 void PixelStrip::Segment::allOff()
 {

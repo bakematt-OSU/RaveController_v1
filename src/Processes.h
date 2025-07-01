@@ -33,17 +33,19 @@ extern uint8_t activeR, activeG, activeB;
 // BLE characteristic defined in main.cpp
 extern BLECharacteristic cmdCharacteristic;
 
+
 inline void handleCommandLine(const String &line)
 {
     Serial.println("HANDLE COMMAND LINE: ");
-    // — TRIM WHITESPACE AND SPLIT COMMAND/ARGUMENTS ——————————————
+    // — TRIM WHITESPACE AND SPLIT COMMAND/ARGUMENTS —
     String trimmed = line;
     trimmed.trim();
 
     int spaceIdx = trimmed.indexOf(' ');
-    String cmd = (spaceIdx >= 0) ? trimmed.substring(0, spaceIdx) : trimmed;
-    String args = (spaceIdx >= 0) ? trimmed.substring(spaceIdx + 1) : String();
+    String cmd  = (spaceIdx >= 0) ? trimmed.substring(0, spaceIdx) : trimmed;
+    String args = (spaceIdx >= 0) ? trimmed.substring(spaceIdx + 1)     : String();
     cmd.toLowerCase();
+
     Serial.print("Command: ");
     Serial.println(cmd);
 
@@ -63,7 +65,7 @@ inline void handleCommandLine(const String &line)
         if (delim != -1)
         {
             int start = args.substring(0, delim).toInt();
-            int end = args.substring(delim + 1).toInt();
+            int end   = args.substring(delim + 1).toInt();
             if (end >= start)
             {
                 String name = "seg" + String(strip.getSegments().size());
@@ -137,6 +139,44 @@ inline void handleCommandLine(const String &line)
             Serial.println(args);
         }
     }
+    // SETBRIGHTNESS <0–255>: set global strip brightness
+    else if (cmd == "setbrightness")
+    {
+        uint8_t b = (uint8_t)constrain(args.toInt(), 0, 255);
+        strip.setActiveBrightness(b);
+        Serial.print("Global brightness set to ");
+        Serial.println(b);
+        strip.show();
+    }
+    // SETSEGBRIGHTNESS <seg> <0–255>: set one segment's brightness
+    else if (cmd == "setsegbrightness")
+    {
+        int sep = args.indexOf(' ');
+        if (sep < 0)
+        {
+            Serial.println("Usage: setsegbrightness <segment> <0–255>");
+        }
+        else
+        {
+            int idx = args.substring(0, sep).toInt();
+            uint8_t b2 = (uint8_t)constrain(args.substring(sep + 1).toInt(), 0, 255);
+            auto &segs = strip.getSegments();
+            if (idx < 0 || idx >= (int)segs.size())
+            {
+                Serial.println("Invalid segment index");
+            }
+            else
+            {
+                segs[idx]->setBrightness(b2);
+                Serial.print("Segment ");
+                Serial.print(idx);
+                Serial.print(" brightness set to ");
+                Serial.println(b2);
+                segs[idx]->update();
+                strip.show();
+            }
+        }
+    }
     // SETBTNAME <1–20 chars>: change the BLE Device Name
     else if (cmd == "setbtname")
     {
@@ -149,7 +189,6 @@ inline void handleCommandLine(const String &line)
                 fputs(args.c_str(), f);
                 fputc('\n', f);
                 fclose(f);
-                // immediately bump the BLE name
                 BLE.stopAdvertise();
                 BLE.setLocalName(args.c_str());
                 BLE.advertise();
@@ -167,6 +206,7 @@ inline void handleCommandLine(const String &line)
             Serial.println("Usage: setbtname <1–20 chars>");
         }
     }
+    // LISTEFFECTS: dump available effects
     else if (cmd == "listeffects")
     {
         Serial.println("Available effects:");
@@ -176,13 +216,207 @@ inline void handleCommandLine(const String &line)
             Serial.println(EFFECT_NAMES[i]);
         }
     }
-    // ─── catch-all for anything else ────────────────────────────────────────
+    // unknown
     else
     {
         Serial.print("Unknown command: ");
         Serial.println(cmd);
     }
 }
+
+
+// inline void handleCommandLine(const String &line)
+// {
+//     Serial.println("HANDLE COMMAND LINE: ");
+//     // — TRIM WHITESPACE AND SPLIT COMMAND/ARGUMENTS ——————————————
+//     String trimmed = line;
+//     trimmed.trim();
+
+//     int spaceIdx = trimmed.indexOf(' ');
+//     String cmd = (spaceIdx >= 0) ? trimmed.substring(0, spaceIdx) : trimmed;
+//     String args = (spaceIdx >= 0) ? trimmed.substring(spaceIdx + 1) : String();
+//     cmd.toLowerCase();
+//     Serial.print("Command: ");
+//     Serial.println(cmd);
+
+//     // CLEARSEGMENTS: remove all user‐added segments, reset to full strip
+//     if (cmd == "clearsegments")
+//     {
+//         Serial.println("Clearing user-defined segments.");
+//         strip.clearUserSegments();
+//         seg = strip.getSegments()[0];
+//         seg->startEffect(PixelStrip::Segment::SegmentEffect::NONE);
+//         Serial.println("Active segment reset to 0 (full strip).");
+//     }
+//     // ADDSEGMENT <start> <end>: carve out a new segment
+//     else if (cmd == "addsegment")
+//     {
+//         int delim = args.indexOf(' ');
+//         if (delim != -1)
+//         {
+//             int start = args.substring(0, delim).toInt();
+//             int end = args.substring(delim + 1).toInt();
+//             if (end >= start)
+//             {
+//                 String name = "seg" + String(strip.getSegments().size());
+//                 strip.addSection(start, end, name);
+//                 Serial.print("Added segment #");
+//                 Serial.print(strip.getSegments().size() - 1);
+//                 Serial.print(" from ");
+//                 Serial.print(start);
+//                 Serial.print(" to ");
+//                 Serial.println(end);
+//             }
+//             else
+//             {
+//                 Serial.println("Error: end must be >= start.");
+//             }
+//         }
+//         else
+//         {
+//             Serial.println("Usage: addsegment <start> <end>");
+//         }
+//     }
+//     // SELECT <index>: switch which segment ‘seg’ points to
+//     else if (cmd == "select")
+//     {
+//         int idxArg = args.toInt();
+//         if (idxArg >= 0 && idxArg < (int)strip.getSegments().size())
+//         {
+//             seg = strip.getSegments()[idxArg];
+//             Serial.print("Selected segment ");
+//             Serial.println(idxArg);
+//         }
+//         else
+//         {
+//             Serial.println("Invalid segment index.");
+//         }
+//     }
+//     // SETCOLOR <r> <g> <b>: update the globals for your next effects
+//     else if (cmd == "setcolor")
+//     {
+//         int a = args.indexOf(' ');
+//         int b = args.indexOf(' ', a + 1);
+//         if (a > 0 && b > a)
+//         {
+//             activeR = args.substring(0, a).toInt();
+//             activeG = args.substring(a + 1, b).toInt();
+//             activeB = args.substring(b + 1).toInt();
+//             Serial.print("Color set to R=");
+//             Serial.print(activeR);
+//             Serial.print(" G=");
+//             Serial.print(activeG);
+//             Serial.print(" B=");
+//             Serial.println(activeB);
+//         }
+//         else
+//         {
+//             Serial.println("Usage: setcolor <r> <g> <b>");
+//         }
+//     }
+//     // SETEFFECT <name>: apply an effect
+//     else if (cmd == "seteffect")
+//     {
+//         EffectType effect = effectFromString(args);
+//         if (effect == EffectType::UNKNOWN)
+//         {
+//             Serial.println("Invalid effect name.");
+//         }
+//         else
+//         {
+//             applyEffectToSegment(seg, effect);
+//             Serial.print("Effect applied: ");
+//             Serial.println(args);
+//         }
+//     }
+//     // set global strip brightness: setbrightness <0–255>
+//     else if (cmd.equalsIgnoreCase("setbrightness"))
+//     {
+//         uint8_t b = (uint8_t)constrain(rest.toInt(), 0, 255);
+//         strip.setActiveBrightness(b);
+//         Serial.print("Global brightness set to ");
+//         Serial.println(b);
+//         // immediately repaint at new brightness
+//         strip.show();
+//     }
+
+//     // set per-segment brightness: setsegbrightness <segIndex> <0–255>
+//     else if (cmd.equalsIgnoreCase("setsegbrightness"))
+//     {
+//         int p2 = rest.indexOf(' ');
+//         if (p2 == -1)
+//         {
+//             Serial.println("Usage: setsegbrightness <segment> <0–255>");
+//         }
+//         else
+//         {
+//             int idx = rest.substring(0, p2).toInt();
+//             uint8_t b = (uint8_t)constrain(rest.substring(p2 + 1).toInt(), 0, 255);
+//             auto &segs = strip.getSegments();
+//             if (idx < 0 || idx >= (int)segs.size())
+//             {
+//                 Serial.println("Invalid segment index");
+//             }
+//             else
+//             {
+//                 segs[idx]->setBrightness(b);
+//                 Serial.print("Segment ");
+//                 Serial.print(idx);
+//                 Serial.print(" brightness set to ");
+//                 Serial.println(b);
+//                 // force that segment to redraw right away
+//                 segs[idx]->update();
+//                 strip.show();
+//             }
+//         }
+//     }
+
+//     // SETBTNAME <1–20 chars>: change the BLE Device Name
+//     else if (cmd == "setbtname")
+//     {
+//         args.trim();
+//         if (args.length() >= 1 && args.length() <= 20)
+//         {
+//             FILE *f = fopen(BT_NAME_FILE, "w");
+//             if (f)
+//             {
+//                 fputs(args.c_str(), f);
+//                 fputc('\n', f);
+//                 fclose(f);
+//                 // immediately bump the BLE name
+//                 BLE.stopAdvertise();
+//                 BLE.setLocalName(args.c_str());
+//                 BLE.advertise();
+//                 Serial.print("BT name set to “");
+//                 Serial.print(args);
+//                 Serial.println("”");
+//             }
+//             else
+//             {
+//                 Serial.println("Error: cannot open file for write");
+//             }
+//         }
+//         else
+//         {
+//             Serial.println("Usage: setbtname <1–20 chars>");
+//         }
+//     }
+//     else if (cmd == "listeffects")
+//     {
+//         Serial.println("Available effects:");
+//         for (uint8_t i = 0; i < EFFECT_COUNT; ++i)
+//         {
+//             Serial.print("  ");
+//             Serial.println(EFFECT_NAMES[i]);
+//         }
+//     }
+//     // ─── catch-all for anything else ────────────────────────────────────────
+//     else
+//     {
+//         Serial.print("Unknown command: ");
+//         Serial.println(cmd);
+//     }
+// }
 
 inline void processSerial()
 {

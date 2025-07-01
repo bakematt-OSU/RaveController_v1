@@ -17,6 +17,10 @@ public:
     class Segment
     {
     public:
+        uint8_t brightness = 255; // 0–255, default full
+        void setBrightness(uint8_t b) { brightness = b; }
+        uint8_t getBrightness() const { return brightness; }
+
         enum class SegmentEffect
         {
             NONE,
@@ -44,8 +48,8 @@ public:
 
         void setTriggerState(bool isActive, uint8_t brightness);
 
-        void setBrightness(uint8_t b);
-        uint8_t getBrightness() const;
+        // void setBrightness(uint8_t b);
+        // uint8_t getBrightness() const;
 
         PixelStrip &getParent() { return parent; }
 
@@ -81,7 +85,7 @@ public:
         uint16_t startIdx, endIdx;
         String name;
         uint8_t id;
-        uint8_t brightness;
+        // uint8_t brightness;
     };
 
     PixelStrip(uint8_t pin, uint16_t ledCount, uint8_t brightness = 50, uint8_t numSections = 0);
@@ -90,6 +94,17 @@ public:
     void clear();
     uint32_t Color(uint8_t r, uint8_t g, uint8_t b);
     uint32_t ColorHSV(uint16_t hue, uint8_t sat = 255, uint8_t val = 255);
+    static uint32_t scaleColor(uint32_t color, uint8_t brightness)
+    {
+        uint8_t r = (color >> 16) & 0xFF;
+        uint8_t g = (color >> 8) & 0xFF;
+        uint8_t b = color & 0xFF;
+        r = (uint16_t(r) * brightness) / 255;
+        g = (uint16_t(g) * brightness) / 255;
+        b = (uint16_t(b) * brightness) / 255;
+        return (uint32_t(r) << 16) | (uint32_t(g) << 8) | b;
+    }
+
     void setPixel(uint16_t idx, uint32_t color);
     void clearPixel(uint16_t idx);
     void setActiveBrightness(uint8_t b);
