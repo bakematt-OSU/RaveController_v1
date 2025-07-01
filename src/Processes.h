@@ -167,6 +167,15 @@ inline void handleCommandLine(const String &line)
             Serial.println("Usage: setbtname <1–20 chars>");
         }
     }
+    else if (cmd == "listeffects")
+    {
+        Serial.println("Available effects:");
+        for (uint8_t i = 0; i < EFFECT_COUNT; ++i)
+        {
+            Serial.print("  ");
+            Serial.println(EFFECT_NAMES[i]);
+        }
+    }
     // ─── catch-all for anything else ────────────────────────────────────────
     else
     {
@@ -226,42 +235,66 @@ inline void processAccel()
     }
 }
 
+// inline void updateHeartbeat()
+// {
 
-// --- Heartbeat Effect State Variables ---
-enum HeartbeatColorState
+//     if (millis() - lastHeartbeatColorChange < HB_INTERVAL_MS)
+//     {
+//         return;
+//     }
+//     lastHeartbeatColorChange = millis();
+
+//     WiFiDrv::analogWrite(LEDR_PIN, 0);
+//     WiFiDrv::analogWrite(LEDG_PIN, 0);
+//     WiFiDrv::analogWrite(LEDB_PIN, 0);
+
+//     switch (heartbeatColorState)
+//     {
+//     case HEARTBEAT_RED:
+//         WiFiDrv::analogWrite(LEDR_PIN, 255);
+//         heartbeatColorState = HEARTBEAT_GREEN;
+//         break;
+//     case HEARTBEAT_GREEN:
+//         WiFiDrv::analogWrite(LEDG_PIN, 255);
+//         heartbeatColorState = HEARTBEAT_BLUE;
+//         break;
+//     case HEARTBEAT_BLUE:
+//         WiFiDrv::analogWrite(LEDB_PIN, 255);
+//         heartbeatColorState = HEARTBEAT_RED;
+//         break;
+//     }
+// }
+
+inline void updateDigHeartbeat()
 {
-    HEARTBEAT_RED,
-    HEARTBEAT_GREEN,
-    HEARTBEAT_BLUE
-};
-HeartbeatColorState heartbeatColorState = HEARTBEAT_RED;
-unsigned long lastHeartbeatColorChange = 0;
-
-
-inline void updateHeartbeat()
-{
+    // only advance once per interval
     if (millis() - lastHeartbeatColorChange < HB_INTERVAL_MS)
     {
         return;
     }
     lastHeartbeatColorChange = millis();
 
-    WiFiDrv::analogWrite(LEDR_PIN, 0);
-    WiFiDrv::analogWrite(LEDG_PIN, 0);
-    WiFiDrv::analogWrite(LEDB_PIN, 0);
-
+    // turn all channels off
+    WiFiDrv::digitalWrite(LEDR_PIN, LOW);
+    WiFiDrv::digitalWrite(LEDG_PIN, LOW);
+    WiFiDrv::digitalWrite(LEDB_PIN, LOW);
+    // Serial.print("[HB] Color change: ");
+    // Serial.println(heartbeatColorState);
+    // light only the next color
     switch (heartbeatColorState)
     {
     case HEARTBEAT_RED:
-        WiFiDrv::analogWrite(LEDR_PIN, 255);
+        WiFiDrv::digitalWrite(LEDR_PIN, HIGH);
         heartbeatColorState = HEARTBEAT_GREEN;
         break;
+
     case HEARTBEAT_GREEN:
-        WiFiDrv::analogWrite(LEDG_PIN, 255);
+        WiFiDrv::digitalWrite(LEDG_PIN, HIGH);
         heartbeatColorState = HEARTBEAT_BLUE;
         break;
+
     case HEARTBEAT_BLUE:
-        WiFiDrv::analogWrite(LEDB_PIN, 255);
+        WiFiDrv::digitalWrite(LEDB_PIN, HIGH);
         heartbeatColorState = HEARTBEAT_RED;
         break;
     }
@@ -269,24 +302,27 @@ inline void updateHeartbeat()
 
 // inline void processBLE()
 
-
 // keep a handle to the connected central across calls
 static BLEDevice connectedCentral;
 
 inline void processBLE()
 {
     // if not already connected, see if one just attached
-    if (!connectedCentral) {
+    if (!connectedCentral)
+    {
         connectedCentral = BLE.central();
-        if (connectedCentral) {
+        if (connectedCentral)
+        {
             Serial.println("[BLE] Central connected");
         }
     }
 
     // if we are connected, poll once and handle any incoming writes
-    if (connectedCentral && connectedCentral.connected()) {
-        BLE.poll();  
-        if (cmdCharacteristic.written()) {
+    if (connectedCentral && connectedCentral.connected())
+    {
+        BLE.poll();
+        if (cmdCharacteristic.written())
+        {
             String line((const char *)cmdCharacteristic.value(),
                         cmdCharacteristic.valueLength());
             line.trim();
@@ -295,9 +331,10 @@ inline void processBLE()
             handleCommandLine(line);
         }
     }
-    else if (connectedCentral) {
+    else if (connectedCentral)
+    {
         // central was connected but now it's gone
         Serial.println("[BLE] Central disconnected");
-        connectedCentral = BLEDevice();  // reset handle
+        connectedCentral = BLEDevice(); // reset handle
     }
 }

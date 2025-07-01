@@ -78,15 +78,15 @@ inline void initAudio() {
 
 // Initialize LED strip and heartbeat LEDs
 inline void initLEDs() {
-    // — configure the NINA LED pins as outputs —
-    WiFiDrv::pinMode(LEDR_PIN, OUTPUT);
-    WiFiDrv::pinMode(LEDG_PIN, OUTPUT);
-    WiFiDrv::pinMode(LEDB_PIN, OUTPUT);
+    // // — configure the NINA LED pins as outputs —
+    // WiFiDrv::pinMode(LEDR_PIN, OUTPUT);
+    // WiFiDrv::pinMode(LEDG_PIN, OUTPUT);
+    // WiFiDrv::pinMode(LEDB_PIN, OUTPUT);
 
-    // Turn off heartbeat LEDs
-    WiFiDrv::analogWrite(LEDR_PIN, 0);
-    WiFiDrv::analogWrite(LEDG_PIN, 0);
-    WiFiDrv::analogWrite(LEDB_PIN, 0);
+    // // Turn off heartbeat LEDs
+    // WiFiDrv::analogWrite(LEDR_PIN, 0);
+    // WiFiDrv::analogWrite(LEDG_PIN, 0);
+    // WiFiDrv::analogWrite(LEDB_PIN, 0);
 
     // Check WiFi module
     if (WiFi.status() == WL_NO_MODULE) {

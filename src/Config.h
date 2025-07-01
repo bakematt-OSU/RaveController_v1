@@ -32,6 +32,18 @@ constexpr unsigned long HB_INTERVAL_MS = 2000;
 // where we store the overall state
 static constexpr char STATE_FILE[] = "/state.json";
 
+
+// --- Heartbeat Effect State Variables ---
+enum HeartbeatColorState
+{
+    HEARTBEAT_RED,
+    HEARTBEAT_GREEN,
+    HEARTBEAT_BLUE
+};
+HeartbeatColorState heartbeatColorState = HEARTBEAT_RED;
+unsigned long lastHeartbeatColorChange = 0;
+
+
 // call this once in setup(), before loadConfig()
 inline void initStateFS() {
   static LittleFS_MBED myFS;
@@ -39,22 +51,4 @@ inline void initStateFS() {
     Serial.println("⚠️ LittleFS mount failed");
   }
 }
-
-// // load JSON from flash into a document; returns false if missing/bad
-// inline bool loadConfig(JsonDocument &doc) {
-//   FILE *f = fopen(STATE_FILE, "r");
-//   if (!f) return false;
-//   DeserializationError err = deserializeJson(doc, *f);
-//   fclose(f);
-//   return !err;
-// }
-
-// // write the given JSON doc back to flash
-// inline bool saveConfig(const JsonDocument &doc) {
-//   FILE *f = fopen(STATE_FILE, "w");
-//   if (!f) return false;
-//   serializeJson(doc, *f);
-//   fclose(f);
-//   return true;
-// }
 

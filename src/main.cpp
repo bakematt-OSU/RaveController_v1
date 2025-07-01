@@ -34,7 +34,21 @@ void setup()
     initAudio();
     initLEDs();
     initFS();
+    Serial.println(F("→ Blink test start"));
+    WiFiDrv::pinMode(LEDR_PIN, OUTPUT);
+    WiFiDrv::pinMode(LEDG_PIN, OUTPUT);
+    WiFiDrv::pinMode(LEDB_PIN, OUTPUT);
+    for (int i = 0; i < 3; ++i) {
+    WiFiDrv::digitalWrite(LEDR_PIN, HIGH); delay(50);
+    WiFiDrv::digitalWrite(LEDR_PIN, LOW);  delay(50);
+    WiFiDrv::digitalWrite(LEDG_PIN, HIGH); delay(50);
+    WiFiDrv::digitalWrite(LEDG_PIN, LOW);  delay(50);
+    WiFiDrv::digitalWrite(LEDB_PIN, HIGH); delay(50);
+    WiFiDrv::digitalWrite(LEDB_PIN, LOW);  delay(50);
+    }
+    Serial.println(F("→ Blink test end"));
     initBLE();
+
 }
 
 void loop()
@@ -43,7 +57,7 @@ void loop()
     processBLE();
     processAudio();
     processAccel();
-    updateHeartbeat();
+    updateDigHeartbeat();
     for (auto *s : strip.getSegments())
     {
         s->update();
