@@ -13,19 +13,21 @@
 #include "EffectLookup.h"
 #include <LittleFS_Mbed_RP2040.h>
 #include <stdio.h>
+#include "Config.h"
 
 //-----------------------------------------------------------------------------
 // Binary command IDs for quick BLE/Android control
 //-----------------------------------------------------------------------------
-static constexpr uint8_t CMD_SET_COLOR      = 0x01;
-static constexpr uint8_t CMD_SET_EFFECT     = 0x02;
+static constexpr uint8_t CMD_SET_COLOR = 0x01;
+static constexpr uint8_t CMD_SET_EFFECT = 0x02;
 static constexpr uint8_t CMD_SET_BRIGHTNESS = 0x03;
 static constexpr uint8_t CMD_SET_SEG_BRIGHT = 0x04;
 static constexpr uint8_t CMD_SELECT_SEGMENT = 0x05;
 static constexpr uint8_t CMD_CLEAR_SEGMENTS = 0x06;
-static constexpr uint8_t CMD_SET_SEG_RANGE  = 0x07;
-static constexpr uint8_t CMD_GET_STATUS     = 0x08;
-static constexpr uint8_t CMD_BATCH_CONFIG   = 0x09;
+static constexpr uint8_t CMD_SET_SEG_RANGE = 0x07;
+static constexpr uint8_t CMD_GET_STATUS = 0x08;
+static constexpr uint8_t CMD_BATCH_CONFIG = 0x09;
+static constexpr uint8_t CMD_NUM_PIXELS = 0x0A;
 
 //-----------------------------------------------------------------------------
 // External globals defined in main.cpp
@@ -266,7 +268,8 @@ inline void handleCommandLine(const String &line)
     else if (cmd == "listeffects")
     {
         Serial.println("Effects:");
-        for (uint8_t i = 0; i < EFFECT_COUNT; ++i) {
+        for (uint8_t i = 0; i < EFFECT_COUNT; ++i)
+        {
             // FIX: Reverted from printf to print/println
             Serial.print("[");
             Serial.print(i);
@@ -337,6 +340,14 @@ inline void handleCommandLine(const String &line)
             }
         }
     }
+    else if (cmd == "numpixels")
+    {
+        // Build JSON payload once
+        String resp = String("{\"numpixels\":") + LED_COUNT + String("}");
+        Serial.println(resp); // USB serial response
+        if (connectedCentral) // BLE response (ASCII mode)
+            cmdCharacteristic.writeValue(resp.c_str());
+    }
     else if (cmd == "getstatus")
     {
         // FIX: Reverted from printf to print for more efficient JSON generation
@@ -374,7 +385,8 @@ inline void handleCommandLine(const String &line)
     }
     else if (cmd == "batchconfig")
         handleBatchConfigJson(args);
-    else {
+    else
+    {
         // FIX: Reverted from printf to print/println
         Serial.print("Unknown cmd: ");
         Serial.println(cmd.c_str());
@@ -444,6 +456,14 @@ inline void handleBinarySerial(const uint8_t *data, size_t len)
             handleBatchConfigJson(j);
         }
         break;
+
+    case CMD_NUM_PIXELS:
+    {
+        // Build a little JSON payload
+        String resp = String("{\"numpixels\":") + LED_COUNT + String("}");
+        cmdCharacteristic.writeValue(resp.c_str());
+    }
+    break;
     }
 }
 
@@ -477,7 +497,7 @@ inline void processAudio()
 {
     if (samplesRead > 0)
     {
-        audioTrigger.update((volatile int16_t*)sampleBuffer);
+        audioTrigger.update((volatile int16_t *)sampleBuffer);
         samplesRead = 0;
     }
 }
@@ -525,11 +545,12 @@ inline void processBLE()
         {
             size_t len = cmdCharacteristic.valueLength();
             // Ensure buffer is large enough for potential commands
-            uint8_t buf[256]; 
-            if (len > sizeof(buf)) len = sizeof(buf);
-            
+            uint8_t buf[256];
+            if (len > sizeof(buf))
+                len = sizeof(buf);
+
             memcpy(buf, cmdCharacteristic.value(), len);
-            
+
             if (buf[0] < 0x20)
                 handleBinarySerial(buf, len);
             else
