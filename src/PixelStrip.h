@@ -80,6 +80,15 @@ public:
         int rippleWidth = 3;      // The width of the ripple in pixels
         float rippleSpeed = 0.2f; // The speed/fade duration of the ripple
 
+        /// Change this segment’s start/end indices
+        void setRange(uint16_t newStart, uint16_t newEnd)
+        {
+            if (newEnd < newStart)
+                return;          // guard
+            startIdx = newStart; // private members of this class
+            endIdx = newEnd;
+        }
+
     private:
         PixelStrip &parent;
         uint16_t startIdx, endIdx;
