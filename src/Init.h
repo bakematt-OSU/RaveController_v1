@@ -134,7 +134,15 @@ inline void initLEDs() {
 
 
 BLEService ledService("180A"); // Custom LED service
-BLECharacteristic cmdCharacteristic("2A57", BLEWrite, 100); // Write-only command channel
+BLECharacteristic cmdCharacteristic(
+  "2A57",
+  BLEWrite            |  // central can write commands
+  BLERead             |  // central can read back values
+  BLENotify,            // central can subscribe for notifications
+  200                   // maximum payload size
+);
+
+
 
 // 1) Create a global pointer to the FS wrapper
 static LittleFS_MBED *myFS = nullptr;

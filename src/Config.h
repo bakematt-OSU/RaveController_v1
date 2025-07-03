@@ -13,7 +13,7 @@ constexpr uint8_t LED_PIN  = 4;
 
 // —— LED Strip Configuration ——
 constexpr uint16_t LED_COUNT     = 300;
-constexpr uint8_t  BRIGHTNESS    = 25;
+constexpr uint8_t  BRIGHTNESS    = 10;
 constexpr uint8_t  SEGMENT_COUNT = 0;
 
 // —— Accelerometer & Step Detection ——
