@@ -4,3 +4,11 @@
 .vscode/launch.json
 .vscode/ipch
 /OLD/
+PythonTests/.venv
+*.pyc
+*.pyo
+__pycache__/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
