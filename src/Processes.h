@@ -530,36 +530,74 @@ inline void updateDigHeartbeat()
     digitalWrite((st == 0 ? LEDR_PIN : (st == 1 ? LEDG_PIN : LEDB_PIN)), HIGH);
     st = (st + 1) % 3;
 }
+
+unsigned long disconnectTime = 0; // Timer to track disconnection
+static const unsigned long HEARTBEAT_INTERVAL      = 1000;  // ms between keep-alive pings
+static unsigned long       lastHeartbeatTime      = 0;
+static const unsigned long DISCONNECT_GRACE_PERIOD = 500;   // you already have this
+
+// // … your other globals …
+// extern BLECharacteristic cmdCharacteristic;
+// static BLEDevice connectedCentral;
+// static unsigned long disconnectTime = 0;
 inline void processBLE()
 {
-    if (!connectedCentral)
-    {
-        connectedCentral = BLE.central();
-        if (connectedCentral)
-            Serial.println("[BLE] connected");
+    // 0) Always ensure we're advertising if nobody's connected
+    if (!connectedCentral) {
+        BLE.advertise();  
     }
-    if (connectedCentral && connectedCentral.connected())
-    {
-        BLE.poll();
-        if (cmdCharacteristic.written())
-        {
-            size_t len = cmdCharacteristic.valueLength();
-            // Ensure buffer is large enough for potential commands
-            uint8_t buf[256];
-            if (len > sizeof(buf))
-                len = sizeof(buf);
 
-            memcpy(buf, cmdCharacteristic.value(), len);
-
-            if (buf[0] < 0x20)
-                handleBinarySerial(buf, len);
-            else
-                handleCommandLine(String((char *)buf, len));
+    // 1) Look for a new central
+    if (!connectedCentral) {
+        connectedCentral = BLE.central();
+        if (connectedCentral) {
+            Serial.print("[BLE] Connected: ");
+            Serial.println(connectedCentral.address());
+            disconnectTime    = 0;
+            lastHeartbeatTime = millis();
         }
     }
-    else if (connectedCentral)
-    {
-        Serial.println("[BLE] disconnected");
-        connectedCentral = BLEDevice(); // Reset the device object
+
+    // 2) If still connected…
+    if (connectedCentral && connectedCentral.connected()) {
+        // reset the drop-timer
+        disconnectTime = 0;
+
+        // poll for writes
+        BLE.poll();
+
+        // heartbeat notification
+        if (millis() - lastHeartbeatTime >= HEARTBEAT_INTERVAL) {
+            lastHeartbeatTime = millis();
+            uint8_t beat = 0;
+            cmdCharacteristic.writeValue(&beat, 1);
+            cmdCharacteristic.broadcast();         // ← replaces .notify()
+        }
+
+        // handle any real commands
+        if (cmdCharacteristic.written()) {
+            size_t len = cmdCharacteristic.valueLength();
+            uint8_t buf[256];
+            if (len > sizeof(buf)) len = sizeof(buf);
+            memcpy(buf, cmdCharacteristic.value(), len);
+            Serial.print("[BLE] Cmd in: ");
+            Serial.write(buf, len);
+            Serial.println();
+            // …dispatch binary vs string here…
+        }
+    }
+    // 3) Connected object exists but link dropped: start grace timer
+    else if (connectedCentral) {
+        if (disconnectTime == 0) {
+            Serial.println("[BLE] Lost link, waiting to drop…");
+            disconnectTime = millis();
+        }
+        if (millis() - disconnectTime > DISCONNECT_GRACE_PERIOD) {
+            Serial.print("[BLE] Fully disconnected: ");
+            Serial.println(connectedCentral.address());
+            connectedCentral = BLEDevice();  // clear
+            BLE.advertise();                  // restart advertising immediately
+            Serial.println("[BLE] Advertising restarted");
+        }
     }
 }
