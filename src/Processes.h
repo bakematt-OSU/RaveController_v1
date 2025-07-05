@@ -5,7 +5,7 @@
 #include <Arduino_LSM6DSOX.h>
 #include <WiFiNINA.h>
 #include <ArduinoBLE.h>
-#include <ArduinoJson.h> // JSON parsing for batch config
+#include <ArduinoJson.h>
 #include <math.h>
 #include <PDM.h>
 #include "PixelStrip.h"
@@ -14,6 +14,7 @@
 #include <LittleFS_Mbed_RP2040.h>
 #include <stdio.h>
 #include "Config.h"
+
 
 //-----------------------------------------------------------------------------
 // Binary command IDs for quick BLE/Android control
@@ -29,9 +30,7 @@ static constexpr uint8_t CMD_GET_STATUS = 0x08;
 static constexpr uint8_t CMD_BATCH_CONFIG = 0x09;
 static constexpr uint8_t CMD_NUM_PIXELS = 0x0A;
 
-//-----------------------------------------------------------------------------
-// External globals defined in main.cpp
-//-----------------------------------------------------------------------------
+// --- External globals defined in main.cpp ---
 extern volatile int16_t sampleBuffer[];
 extern volatile int samplesRead;
 extern float accelX, accelY, accelZ;
@@ -45,8 +44,16 @@ extern HeartbeatColor hbColor;
 extern unsigned long lastHbChange;
 extern uint8_t activeR, activeG, activeB;
 
+// ——— External state (define these in your main.cpp) ————————————————
+extern BLEService       uartService;
 extern BLECharacteristic cmdCharacteristic;
+
+// --- BLE Connection State Management (file-scoped) ---
 static BLEDevice connectedCentral;
+static unsigned long disconnectTime = 0;
+static const unsigned long DISCONNECT_GRACE_PERIOD = 2000;
+static const unsigned long HEARTBEAT_INTERVAL = 1000;
+static unsigned long lastHeartbeatTime = 0;
 
 //-----------------------------------------------------------------------------
 // handleBatchConfigJson(): apply full configuration from JSON
@@ -475,7 +482,6 @@ inline void processSerial()
     while (Serial.available())
     {
         int c = Serial.peek();
-        // Check if the first byte is a control character (likely a binary command)
         if (c >= 0 && c < 0x20)
         {
             uint8_t buf[64];
@@ -530,74 +536,65 @@ inline void updateDigHeartbeat()
     digitalWrite((st == 0 ? LEDR_PIN : (st == 1 ? LEDG_PIN : LEDB_PIN)), HIGH);
     st = (st + 1) % 3;
 }
+//-----------------------------------------------------------------------------
+// Send a notification every HEARTBEAT_INTERVAL ms to keep the BLE link alive
+// This is now simplified to only send if the central is valid.
+//-----------------------------------------------------------------------------
+inline void sendBleHeartbeat() {
+  if (connectedCentral && millis() - lastHeartbeatTime >= HEARTBEAT_INTERVAL)
+  {
+    lastHeartbeatTime = millis();
+    // A single write is sufficient. The 'notify' parameter is now handled by the library.
+    uint8_t beat = 0; // Sending a single dummy byte is common practice
+    cmdCharacteristic.writeValue(beat);
+  }
+}
 
-unsigned long disconnectTime = 0; // Timer to track disconnection
-static const unsigned long HEARTBEAT_INTERVAL      = 1000;  // ms between keep-alive pings
-static unsigned long       lastHeartbeatTime      = 0;
-static const unsigned long DISCONNECT_GRACE_PERIOD = 500;   // you already have this
-
-// // … your other globals …
-// extern BLECharacteristic cmdCharacteristic;
-// static BLEDevice connectedCentral;
-// static unsigned long disconnectTime = 0;
+//-----------------------------------------------------------------------------
+// processBLE: Rewritten for stability.
+// It now has only two states: looking for a connection, or handling a connection.
+// The problematic "grace period" has been removed.
+//-----------------------------------------------------------------------------
 inline void processBLE()
 {
-    // 0) Always ensure we're advertising if nobody's connected
+    // Step 1: Check for a new connection if we don't have one.
     if (!connectedCentral) {
-        BLE.advertise();  
-    }
-
-    // 1) Look for a new central
-    if (!connectedCentral) {
-        connectedCentral = BLE.central();
-        if (connectedCentral) {
-            Serial.print("[BLE] Connected: ");
+        BLEDevice central = BLE.central();
+        if (central) {
+            connectedCentral = central;
+            Serial.print("[BLE] Connected to central: ");
             Serial.println(connectedCentral.address());
-            disconnectTime    = 0;
             lastHeartbeatTime = millis();
         }
     }
 
-    // 2) If still connected…
+    // Step 2: If we are connected, process data and heartbeats.
+    // If not, the object will be invalid and this block is skipped.
     if (connectedCentral && connectedCentral.connected()) {
-        // reset the drop-timer
-        disconnectTime = 0;
-
-        // poll for writes
-        BLE.poll();
-
-        // heartbeat notification
-        if (millis() - lastHeartbeatTime >= HEARTBEAT_INTERVAL) {
-            lastHeartbeatTime = millis();
-            uint8_t beat = 0;
-            cmdCharacteristic.writeValue(&beat, 1);
-            cmdCharacteristic.broadcast();         // ← replaces .notify()
-        }
-
-        // handle any real commands
+        // Handle incoming commands
         if (cmdCharacteristic.written()) {
             size_t len = cmdCharacteristic.valueLength();
             uint8_t buf[256];
-            if (len > sizeof(buf)) len = sizeof(buf);
-            memcpy(buf, cmdCharacteristic.value(), len);
-            Serial.print("[BLE] Cmd in: ");
-            Serial.write(buf, len);
-            Serial.println();
-            // …dispatch binary vs string here…
+            if (len > 0) {
+                if (len > sizeof(buf)) len = sizeof(buf);
+                memcpy(buf, cmdCharacteristic.value(), len);
+
+                Serial.print("[BLE] Cmd recv: ");
+                Serial.write(buf, len);
+                Serial.println();
+
+                handleBinarySerial(buf, len);
+            }
         }
+
+        // Always send a heartbeat to keep the connection alive.
+        sendBleHeartbeat();
+
     }
-    // 3) Connected object exists but link dropped: start grace timer
-    else if (connectedCentral) {
-        if (disconnectTime == 0) {
-            Serial.println("[BLE] Lost link, waiting to drop…");
-            disconnectTime = millis();
-        }
-        if (millis() - disconnectTime > DISCONNECT_GRACE_PERIOD) {
-            Serial.print("[BLE] Fully disconnected: ");
-            Serial.println(connectedCentral.address());
-            connectedCentral = BLEDevice();  // clear
-            BLE.advertise();                  // restart advertising immediately
-            Serial.println("[BLE] Advertising restarted");
-        }
+    // Step 3: If the central device disconnected, invalidate the object.
+    else if (connectedCentral && !connectedCentral.connected()) {
+        Serial.print("[BLE] Disconnected from: ");
+        Serial.println(connectedCentral.address());
+        connectedCentral = BLEDevice(); // Invalidate the object. Ready for a new connection.
     }
 }

@@ -1,5 +1,5 @@
 // Init.h
-// Definitions for initialization routines and callbacks (all in-header implementation)
+// Definitions for initialization routines and callbacks
 
 #pragma once
 
@@ -11,146 +11,78 @@
 #include "PixelStrip.h"
 #include "Triggers.h"
 #include <ArduinoBLE.h>
-#include <LittleFS_Mbed_RP2040.h>  
-#include <stdio.h> 
+#include <LittleFS_Mbed_RP2040.h>
+#include <stdio.h>
 
-// — where to keep the name on flash —
+// --- Filesystem Constants ---
 #define BT_NAME_FILE     "/btname.txt"
 #define DEFAULT_BT_NAME  "RP2040-LED"
 
-// Externally defined globals (from main.cpp)
+// --- Externally defined globals (from main.cpp) ---
 extern volatile int16_t       sampleBuffer[];
 extern volatile int           samplesRead;
 extern PixelStrip             strip;
 extern AudioTrigger<SAMPLES>  audioTrigger;
-extern PixelStrip::Segment*   seg;
+extern PixelStrip::Segment* seg;
 
-// Initialize serial communication
+// --- BLE Service and Characteristic Definitions ---
+// These UUIDs MUST match the ones in your Android app's BluetoothService.kt
+BLEService ledService("0000180A-0000-1000-8000-00805F9B34FB");
+BLECharacteristic cmdCharacteristic("00002A57-0000-1000-8000-00805F9B34FB", BLERead | BLEWrite | BLENotify, 256);
+
+// --- Initialization Functions ---
+
 inline void initSerial() {
   Serial.begin(115200);
+  // Optional: Wait for serial monitor to open, with a timeout
   unsigned long startTime = millis();
-  const unsigned long timeoutMs = 5000;  // adjust as needed
-
-  // wait up to timeoutMs for the host to open the Serial port
-  while (!Serial && (millis() - startTime < timeoutMs)) {
-    // you can blink an LED here or just spin
+  while (!Serial && (millis() - startTime < 4000)) {
     delay(10);
   }
-
-  if (!Serial) {
-    // Serial never came up—optional fallback
-    // e.g. blink an error LED or send via another interface
-  } else {
-    // Serial is ready
-    Serial.println(F("Serial ready"));
-  }
+  Serial.println(F("Serial ready"));
 }
 
-// Initialize IMU sensor
 inline void initIMU() {
     if (!IMU.begin()) {
         Serial.println("Failed to initialize IMU!");
-        while (true) { /* halt */ }
+        while (true); // Halt
     }
 }
 
-// Handle incoming PDM audio data
 inline void onPDMdata() {
     int bytes = PDM.available();
-    // PDM.read expects a void*; sampleBuffer is volatile, so we cast it away here
     PDM.read((void*)sampleBuffer, bytes);
     samplesRead = bytes / 2;
 }
-// Callback when audio trigger fires
+
 inline void ledFlashCallback(bool active, uint8_t brightness) {
     strip.propagateTriggerState(active, brightness);
 }
 
-// Initialize audio input and trigger callback
 inline void initAudio() {
     PDM.onReceive(onPDMdata);
     audioTrigger.onTrigger(ledFlashCallback);
     if (!PDM.begin(1, SAMPLING_FREQ)) {
         Serial.println("Failed to start PDM!");
-        while (true) { /* halt */ }
+        while (true); // Halt
     }
 }
 
-// Initialize LED strip and heartbeat LEDs
 inline void initLEDs() {
-    // // — configure the NINA LED pins as outputs —
-    // WiFiDrv::pinMode(LEDR_PIN, OUTPUT);
-    // WiFiDrv::pinMode(LEDG_PIN, OUTPUT);
-    // WiFiDrv::pinMode(LEDB_PIN, OUTPUT);
-
-    // // Turn off heartbeat LEDs
-    // WiFiDrv::analogWrite(LEDR_PIN, 0);
-    // WiFiDrv::analogWrite(LEDG_PIN, 0);
-    // WiFiDrv::analogWrite(LEDB_PIN, 0);
-
-    // Check WiFi module
     if (WiFi.status() == WL_NO_MODULE) {
         Serial.println("WiFi module failed!");
-        WiFiDrv::analogWrite(LEDR_PIN, 255);
-        while (true) { /* halt */ }
+        while (true); // Halt
     }
-
-    // Initialize strip…
     strip.begin();
     seg = strip.getSegments()[0];
     seg->begin();
     seg->startEffect(PixelStrip::Segment::SegmentEffect::NONE);
-    // strip.begin();
-    // strip.clear();                 // clear any garbage
-    // seg = strip.getSegments()[0];
-    // seg->begin();
-    // // — show your default static color at startup —
-    // {
-    //   uint32_t c = strip.Color(128, 0, 128);
-    //   for (uint16_t i = seg->startIndex(); i <= seg->endIndex(); ++i)
-    //     strip.setPixel(i, c);
-    //   strip.show();
-    // }
+    strip.show(); // Clear the strip on startup
 }
-// inline void initLEDs() {
-//     // Turn off heartbeat LEDs
-//     WiFiDrv::analogWrite(LEDR_PIN, 0);
-//     WiFiDrv::analogWrite(LEDG_PIN, 0);
-//     WiFiDrv::analogWrite(LEDB_PIN, 0);
 
-//     // Check WiFi module
-//     if (WiFi.status() == WL_NO_MODULE) {
-//         Serial.println("WiFi module failed!");
-//         WiFiDrv::analogWrite(LEDR_PIN, 255);
-//         while (true) { /* halt */ }
-//     }
-
-//     // Initialize strip and first segment
-//     strip.begin();
-//     seg = strip.getSegments()[0];
-//     seg->begin();
-//     seg->startEffect(PixelStrip::Segment::SegmentEffect::NONE);
-// }
-
-
-BLEService ledService("180A"); // Custom LED service
-BLECharacteristic cmdCharacteristic(
-  "2A57",
-  BLEWrite            |  // central can write commands
-  BLERead             |  // central can read back values
-  BLENotify,            // central can subscribe for notifications
-  200                   // maximum payload size
-);
-
-
-
-// 1) Create a global pointer to the FS wrapper
-static LittleFS_MBED *myFS = nullptr;
-
-// 2) Mount (init) the file system
 inline void initFS() {
-  myFS = new LittleFS_MBED();        // allocate the wrapper
-  if (! myFS->init()) {              // mount it
+  static LittleFS_MBED myFS;
+  if (!myFS.init()) {
     Serial.println("⚠️ LittleFS mount failed");
   }
 }
@@ -166,16 +98,11 @@ inline String loadBTName() {
     }
     fclose(f);
 
-    // ----- fix starts here -----
-    String name(buf);   // construct the String
-    name.trim();        // strip newline/whitespace
-    // ----- fix ends here -----
-    
-
+    String name(buf);
+    name.trim(); // Strip newline/whitespace
     return name.length() ? name : DEFAULT_BT_NAME;
 }
 
-// 4) In your BLE init, pull that name in
 inline void initBLE() {
   if (!BLE.begin()) {
     Serial.println("BLE init failed!");
