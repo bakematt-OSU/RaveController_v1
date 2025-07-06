@@ -569,7 +569,6 @@ inline void processBLE()
     }
 
     // Step 2: If we are connected, process data and heartbeats.
-    // If not, the object will be invalid and this block is skipped.
     if (connectedCentral && connectedCentral.connected()) {
         // Handle incoming commands
         if (cmdCharacteristic.written()) {
@@ -591,10 +590,15 @@ inline void processBLE()
         sendBleHeartbeat();
 
     }
-    // Step 3: If the central device disconnected, invalidate the object.
+    // Step 3: If the central device disconnected, clean up and restart advertising.
     else if (connectedCentral && !connectedCentral.connected()) {
         Serial.print("[BLE] Disconnected from: ");
         Serial.println(connectedCentral.address());
-        connectedCentral = BLEDevice(); // Invalidate the object. Ready for a new connection.
+        connectedCentral = BLEDevice(); // Invalidate the object.
+
+        // --- THE FIX ---
+        // Start advertising again to allow for a new connection.
+        BLE.advertise();
+        Serial.println("[BLE] Advertising restarted. Ready for new connection.");
     }
 }
