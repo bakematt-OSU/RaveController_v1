@@ -18,7 +18,7 @@ enum class EffectType {
 
 // ── Map a (case‐insensitive) String to EffectType ──
 inline EffectType effectFromString(const String &str) {
-    #define CASE_ENTRY(name, ns)         \
+    #define CASE_ENTRY(name, ns)       \
         if (str.equalsIgnoreCase(#name)) \
             return EffectType::name;
     EFFECT_LIST(CASE_ENTRY)
@@ -28,6 +28,12 @@ inline EffectType effectFromString(const String &str) {
 
 // ── Apply the chosen effect to a segment ──
 inline void applyEffectToSegment(PixelStrip::Segment *seg, EffectType effect) {
+    if (!seg) return; // Safety check
+
+    // **THIS IS THE CRITICAL FIX**
+    // This line updates the segment's official state so that 'getstatus' reports it correctly.
+    seg->activeEffect = (PixelStrip::Segment::SegmentEffect)effect;
+
     // stop any running effect
     seg->startEffect(PixelStrip::Segment::SegmentEffect::NONE);
 
