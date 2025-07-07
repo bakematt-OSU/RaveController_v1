@@ -172,14 +172,27 @@ void PixelStrip::clearUserSegments() {
     segments_.resize(1); // Shrink the vector back to only contain the "all" segment
 }
 
-void PixelStrip::propagateTriggerState(bool isActive, uint8_t brightness)
-{
-    // Loop through all segments
-    for (auto* s : segments_) {
-        // If a segment is running a trigger effect, update its state.
-        // This can be expanded with || for other future trigger effects.
-        if (s->activeEffect == Segment::SegmentEffect::FLASH_TRIGGER) {
-            s->setTriggerState(isActive, brightness);
+// void PixelStrip::propagateTriggerState(bool isActive, uint8_t brightness)
+// {
+//     // Loop through all segments
+//     for (auto* s : segments_) {
+//         // If a segment is running a trigger effect, update its state.
+//         // This can be expanded with || for other future trigger effects.
+//         if (s->activeEffect == Segment::SegmentEffect::FLASH_TRIGGER) {
+//             s->setTriggerState(isActive, brightness);
+//         }
+//     }
+// }
+
+void PixelStrip::propagateTriggerState(bool triggered, uint8_t brightness) {
+    for (auto *s : segments_) {
+        if (triggered) {
+            if (s->activeEffect == Segment::SegmentEffect::FlashOnTrigger) {
+                s->triggerIsActive   = true;
+                s->triggerBrightness = brightness;
+            }
+        } else {
+            s->triggerIsActive = false;
         }
     }
 }

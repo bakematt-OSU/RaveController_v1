@@ -1,20 +1,18 @@
 #ifndef EFFECTS_H
 #define EFFECTS_H
 
-// This file should ONLY define the master list of effects.
-// It should not include any other files.
-// Format: X(ENUM_NAME, CppNamespaceName)
-#define EFFECT_LIST(X)               \
-    X(RAINBOW, RainbowChase)         \
-    X(SOLID, SolidColor)             \
-    X(FLASH_TRIGGER, FlashOnTrigger) \
-    X(RAINBOW_CYCLE, RainbowCycle)   \
-    X(THEATER_CHASE, TheaterChase)   \
-    X(FIRE, Fire)                    \
-    X(FLARE, Flare)                  \
-    X(COLORED_FIRE, ColoredFire) \
-    X(ACCEL_METER, AccelMeter) \
-    X(KINETIC_RIPPLE, KineticRipple)
-// * When you create a new effect, add its X macro line here. *
+// Master list of segment effects.
+// Format: X(EnumName, ClassName)
+#define EFFECT_LIST(X)                      \
+    X(RainbowChase,   RainbowChase)        \
+    X(SolidColor,     SolidColor)          \
+    X(FlashOnTrigger, FlashOnTrigger)      \
+    X(RainbowCycle,   RainbowCycle)        \
+    X(TheaterChase,   TheaterChase)        \
+    X(Fire,           Fire)                \
+    X(Flare,          Flare)               \
+    X(ColoredFire,    ColoredFire)         \
+    X(AccelMeter,     AccelMeter)          \
+    X(KineticRipple,  KineticRipple)
 
 #endif // EFFECTS_H

@@ -6,7 +6,7 @@
 namespace RainbowCycle {
     // Initialize the rainbow cycle effect
     inline void start(PixelStrip::Segment* seg, uint32_t c1, uint32_t /*c2*/) {
-        seg->setEffect(PixelStrip::Segment::SegmentEffect::RAINBOW_CYCLE);
+        seg->setEffect(PixelStrip::Segment::SegmentEffect::RainbowCycle);
         seg->active = true;
         // Use passed interval if reasonable, otherwise default to 20ms
         seg->interval = (c1 > 0 && c1 <= 1000) ? (uint16_t)c1 : 20;

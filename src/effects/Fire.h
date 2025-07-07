@@ -9,7 +9,9 @@ namespace Fire {
         unsigned int s = a + b;
         return s > 255 ? 255 : byte(s);
     }
-    inline byte qsub8(byte a, byte b) { return b > a ? 0 : a - b; }
+    inline byte qsub8(byte a, byte b) {
+        return b > a ? 0 : a - b;
+    }
 
     // --- Effect-specific constants ---
     const int MAX_LEDS = 300;
@@ -29,20 +31,21 @@ namespace Fire {
 
     // Start the fire effect: ignore color parameters for interval, use defaults
     inline void start(PixelStrip::Segment* seg, uint32_t c1, uint32_t c2) {
-        seg->setEffect(PixelStrip::Segment::SegmentEffect::FIRE);
+        seg->setEffect(PixelStrip::Segment::SegmentEffect::Fire);
         seg->active = true;
-        // Always run updates every ~15ms
         seg->interval = 15;
-        // Allow overriding spark and cooling if values are small
         if (c1 > 0 && c1 <= 255) seg->fireSparking = (uint8_t)c1;
-        if (c2 > 0 && c2 <= 100) seg->fireCooling = (uint8_t)c2;
+        if (c2 > 0 && c2 <= 100) seg->fireCooling   = (uint8_t)c2;
     }
 
     // Update the fire effect: cool, diffuse, spark, and map to LEDs
     inline void update(PixelStrip::Segment* seg) {
         if (!seg->active || (millis() - seg->lastUpdate < seg->interval)) return;
         seg->lastUpdate = millis();
-        int s = seg->startIndex(), e = seg->endIndex(), len = e - s + 1;
+
+        int s   = seg->startIndex();
+        int e   = seg->endIndex();
+        int len = e - s + 1;
 
         // Step 1. Cool down every cell a little
         for (int i = s; i <= e; ++i) {
