@@ -32,7 +32,7 @@ inline void applyEffectToSegment(PixelStrip::Segment *seg, EffectType effect) {
 
     // **THIS IS THE CRITICAL FIX**
     // This line updates the segment's official state so that 'getstatus' reports it correctly.
-    seg->activeEffect = (PixelStrip::Segment::SegmentEffect)effect;
+    seg->activeEffect = (PixelStrip::Segment::SegmentEffect)((int)effect + 1);
 
     // stop any running effect
     seg->startEffect(PixelStrip::Segment::SegmentEffect::NONE);
