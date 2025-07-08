@@ -159,6 +159,11 @@ inline void loadConfig()
 //-----------------------------------------------------------------------------
 inline void handleBatchConfigJson(const String &json)
 {
+    // --- NEW: Print the received JSON for debugging ---
+    Serial.print("Attempting to parse received JSON: ");
+    Serial.println(json);
+    // --- END NEW ---
+
     StaticJsonDocument<1024> doc;
     DeserializationError error = deserializeJson(doc, json);
     if (error)
@@ -408,23 +413,24 @@ inline void handleBinarySerial(const uint8_t *data, size_t len)
     bool needsAck = true;
 
     // --- State Machine for Batch Transfer ---
-    if (cmdId == CMD_BATCH_CONFIG)
+    if (isReceivingBatch && cmdId != CMD_BATCH_CONFIG)
     {
-        isReceivingBatch = true;
-        jsonBuffer = ""; // Start a new batch transfer
-        jsonBuffer.concat((const char *)(data + 1), len - 1);
-        Serial.println("Starting batch config reception...");
-    }
-    else if (isReceivingBatch)
-    {
-        // This is a continuation chunk. It does NOT have a command ID prefix.
+        // This is a continuation chunk of a batch transfer.
+        // It does NOT have a command ID prefix.
         jsonBuffer.concat((const char *)data, len);
     }
     else
     {
-        // This is a single, non-batch command.
+        // This is a new command. Reset any previous batch state.
+        isReceivingBatch = false;
+        jsonBuffer = "";
+
         switch (cmdId)
         {
+        case CMD_BATCH_CONFIG:
+            isReceivingBatch = true;
+            jsonBuffer.concat((const char *)(data + 1), len - 1);
+            break;
         case CMD_GET_STATUS:
             handleCommandLine("getstatus");
             needsAck = false;
