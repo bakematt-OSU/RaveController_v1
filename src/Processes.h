@@ -159,11 +159,6 @@ inline void loadConfig()
 //-----------------------------------------------------------------------------
 inline void handleBatchConfigJson(const String &json)
 {
-    // --- NEW: Print the received JSON for debugging ---
-    Serial.print("Attempting to parse received JSON: ");
-    Serial.println(json);
-    // --- END NEW ---
-
     StaticJsonDocument<1024> doc;
     DeserializationError error = deserializeJson(doc, json);
     if (error)
@@ -187,10 +182,11 @@ inline void handleBatchConfigJson(const String &json)
             uint8_t idx = v.size() - 1;
             if (item.containsKey("brightness"))
                 v[idx]->setBrightness(item["brightness"]);
-            if (item.containsKey("effect"))
+
+            if (item.containsKey("effectIndex"))
             {
-                EffectType e = effectFromString(item["effect"].as<const char *>());
-                if (e != EffectType::UNKNOWN)
+                EffectType e = (EffectType)item["effectIndex"].as<int>();
+                if ((int)e < EFFECT_COUNT)
                 {
                     applyEffectToSegment(v[idx], e);
                     v[idx]->activeEffect = static_cast<PixelStrip::Segment::SegmentEffect>(e);
@@ -410,30 +406,26 @@ inline void handleBinarySerial(const uint8_t *data, size_t len)
         return;
 
     uint8_t cmdId = data[0];
-    bool needsAck = true;
 
     // --- State Machine for Batch Transfer ---
-    if (isReceivingBatch && cmdId != CMD_BATCH_CONFIG)
+    if (cmdId == CMD_BATCH_CONFIG)
+    {
+        isReceivingBatch = true;
+        jsonBuffer = ""; // Start a new batch transfer
+        jsonBuffer.concat((const char *)(data + 1), len - 1);
+    }
+    else if (isReceivingBatch)
     {
         // This is a continuation chunk of a batch transfer.
-        // It does NOT have a command ID prefix.
         jsonBuffer.concat((const char *)data, len);
     }
     else
     {
-        // This is a new command. Reset any previous batch state.
-        isReceivingBatch = false;
-        jsonBuffer = "";
-
+        // This is a single, non-batch command.
         switch (cmdId)
         {
-        case CMD_BATCH_CONFIG:
-            isReceivingBatch = true;
-            jsonBuffer.concat((const char *)(data + 1), len - 1);
-            break;
         case CMD_GET_STATUS:
             handleCommandLine("getstatus");
-            needsAck = false;
             break;
         // Handle other single-shot commands here
         default:
@@ -441,7 +433,6 @@ inline void handleBinarySerial(const uint8_t *data, size_t len)
         }
     }
 
-    // After processing the chunk, check if a batch is complete
     if (isReceivingBatch)
     {
         StaticJsonDocument<1024> doc;
@@ -449,19 +440,9 @@ inline void handleBinarySerial(const uint8_t *data, size_t len)
         {
             Serial.println("Batch config JSON fully received and parsed.");
             handleBatchConfigJson(jsonBuffer);
-            isReceivingBatch = false; // End of batch
-            jsonBuffer = "";          // Clear buffer
+            isReceivingBatch = false;
+            jsonBuffer = "";
         }
-        else
-        {
-            Serial.println("...Partial batch config received, waiting for more...");
-        }
-    }
-
-    if (needsAck && connectedCentral)
-    {
-        uint8_t ack_byte = CMD_ACK;
-        cmdCharacteristic.writeValue(&ack_byte, 1);
     }
 }
 
