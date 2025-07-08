@@ -21,7 +21,6 @@ inline void loadConfig();
 inline void handleBinarySerial(const uint8_t *data, size_t len);
 inline void handleCommandLine(const String &line);
 
-
 //-----------------------------------------------------------------------------
 // Binary command IDs for quick BLE/Android control
 //-----------------------------------------------------------------------------
@@ -58,40 +57,56 @@ extern BLECharacteristic cmdCharacteristic;
 
 // --- BLE Connection State Management ---
 static BLEDevice connectedCentral;
-static String jsonBuffer = ""; // Buffer for reassembling JSON chunks
+static String jsonBuffer = "";        // Buffer for reassembling JSON chunks
+static bool isReceivingBatch = false; // --- NEW: State flag for batch transfer ---
 static bool isSendingMultiPart = false;
 static const unsigned long HEARTBEAT_INTERVAL = 1000;
 static unsigned long lastHeartbeatTime = 0;
 
-
 //-----------------------------------------------------------------------------
 // Helper to map BLE command IDs to names
 //-----------------------------------------------------------------------------
-inline const char* getBLECmdName(uint8_t cmd) {
-    switch (cmd) {
-        case CMD_SET_COLOR:      return "CMD_SET_COLOR";
-        case CMD_SET_EFFECT:     return "CMD_SET_EFFECT";
-        case CMD_SET_BRIGHTNESS: return "CMD_SET_BRIGHTNESS";
-        case CMD_SET_SEG_BRIGHT: return "CMD_SET_SEG_BRIGHT";
-        case CMD_SELECT_SEGMENT: return "CMD_SELECT_SEGMENT";
-        case CMD_CLEAR_SEGMENTS: return "CMD_CLEAR_SEGMENTS";
-        case CMD_SET_SEG_RANGE:  return "CMD_SET_SEG_RANGE";
-        case CMD_GET_STATUS:     return "CMD_GET_STATUS";
-        case CMD_BATCH_CONFIG:   return "CMD_BATCH_CONFIG";
-        case CMD_NUM_PIXELS:     return "CMD_NUM_PIXELS";
-        case CMD_GET_EFFECT_INFO:return "CMD_GET_EFFECT_INFO";
-        case CMD_ACK:            return "CMD_ACK";
-        default:                 return "UNKNOWN_CMD";
+inline const char *getBLECmdName(uint8_t cmd)
+{
+    switch (cmd)
+    {
+    case CMD_SET_COLOR:
+        return "CMD_SET_COLOR";
+    case CMD_SET_EFFECT:
+        return "CMD_SET_EFFECT";
+    case CMD_SET_BRIGHTNESS:
+        return "CMD_SET_BRIGHTNESS";
+    case CMD_SET_SEG_BRIGHT:
+        return "CMD_SET_SEG_BRIGHT";
+    case CMD_SELECT_SEGMENT:
+        return "CMD_SELECT_SEGMENT";
+    case CMD_CLEAR_SEGMENTS:
+        return "CMD_CLEAR_SEGMENTS";
+    case CMD_SET_SEG_RANGE:
+        return "CMD_SET_SEG_RANGE";
+    case CMD_GET_STATUS:
+        return "CMD_GET_STATUS";
+    case CMD_BATCH_CONFIG:
+        return "CMD_BATCH_CONFIG";
+    case CMD_NUM_PIXELS:
+        return "CMD_NUM_PIXELS";
+    case CMD_GET_EFFECT_INFO:
+        return "CMD_GET_EFFECT_INFO";
+    case CMD_ACK:
+        return "CMD_ACK";
+    default:
+        return "UNKNOWN_CMD";
     }
 }
 
-
 // --- Configuration Functions (moved from Config.h) ---
-inline void saveConfig() {
+inline void saveConfig()
+{
     StaticJsonDocument<1024> doc;
 
     JsonArray segments = doc.createNestedArray("segments");
-    for (auto* s : strip.getSegments()) {
+    for (auto *s : strip.getSegments())
+    {
         JsonObject segmentObject = segments.createNestedObject();
         segmentObject["name"] = s->getName();
         segmentObject["startLed"] = s->startIndex();
@@ -101,36 +116,43 @@ inline void saveConfig() {
     }
 
     JsonArray effects = doc.createNestedArray("effects");
-    for(uint8_t i = 0; i < EFFECT_COUNT; ++i) {
+    for (uint8_t i = 0; i < EFFECT_COUNT; ++i)
+    {
         effects.add(EFFECT_NAMES[i]);
     }
 
-    FILE* file = fopen(STATE_FILE, "w");
-    if (file) {
+    FILE *file = fopen(STATE_FILE, "w");
+    if (file)
+    {
         String output;
         serializeJson(doc, output);
         fputs(output.c_str(), file);
         fclose(file);
         Serial.println("Configuration saved.");
-    } else {
+    }
+    else
+    {
         Serial.println("Failed to open state file for writing.");
     }
 }
 
-inline void loadConfig() {
-    FILE* file = fopen(STATE_FILE, "r");
-    if (file) {
+inline void loadConfig()
+{
+    FILE *file = fopen(STATE_FILE, "r");
+    if (file)
+    {
         char buf[1024];
         fread(buf, 1, sizeof(buf), file);
         fclose(file);
         String json(buf);
         handleBatchConfigJson(json);
         Serial.println("Configuration loaded.");
-    } else {
+    }
+    else
+    {
         Serial.println("Could not find state file, using default configuration.");
     }
 }
-
 
 //-----------------------------------------------------------------------------
 // handleBatchConfigJson(): apply full configuration from JSON
@@ -175,7 +197,6 @@ inline void handleBatchConfigJson(const String &json)
     Serial.println("Batch configuration applied");
 }
 
-
 //-----------------------------------------------------------------------------
 // handleCommandLine(): execute ASCII commands from Serial or BLE
 //-----------------------------------------------------------------------------
@@ -192,16 +213,20 @@ inline void handleCommandLine(const String &line)
 
     auto &segments = strip.getSegments();
 
-    if (cmd == "clearsegments") {
+    if (cmd == "clearsegments")
+    {
         strip.clearUserSegments();
         seg = strip.getSegments()[0];
         applyEffectToSegment(seg, static_cast<EffectType>(seg->activeEffect));
         seg->update();
         strip.show();
         Serial.println("Segments cleared; active = 0");
-    } else if (cmd == "listsegments") {
+    }
+    else if (cmd == "listsegments")
+    {
         Serial.println("Segments:");
-        for (size_t i = 0; i < segments.size(); ++i) {
+        for (size_t i = 0; i < segments.size(); ++i)
+        {
             auto *s = segments[i];
             Serial.print("[");
             Serial.print(i);
@@ -214,14 +239,20 @@ inline void handleCommandLine(const String &line)
             Serial.print(", Brightness=");
             Serial.println(s->getBrightness());
         }
-    } else if (cmd == "addsegment") {
+    }
+    else if (cmd == "addsegment")
+    {
         int d = args.indexOf(' ');
-        if (d < 0) Serial.println("Usage: addsegment <start> <end>");
-        else {
+        if (d < 0)
+            Serial.println("Usage: addsegment <start> <end>");
+        else
+        {
             int start = args.substring(0, d).toInt();
             int end = args.substring(d + 1).toInt();
-            if (end < start) Serial.println("Error: end<start");
-            else {
+            if (end < start)
+                Serial.println("Error: end<start");
+            else
+            {
                 strip.addSection(start, end, "seg" + String(segments.size()));
                 Serial.print("Added segment ");
                 Serial.print(segments.size() - 1);
@@ -232,16 +263,23 @@ inline void handleCommandLine(const String &line)
                 Serial.println("]");
             }
         }
-    } else if (cmd == "setsegrange") {
+    }
+    else if (cmd == "setsegrange")
+    {
         int p1 = args.indexOf(' '), p2 = args.indexOf(' ', p1 + 1);
-        if (p1 < 0 || p2 < 0) Serial.println("Usage: setsegrange <idx> <start> <end>");
-        else {
+        if (p1 < 0 || p2 < 0)
+            Serial.println("Usage: setsegrange <idx> <start> <end>");
+        else
+        {
             int idx = args.substring(0, p1).toInt();
             int start = args.substring(p1 + 1, p2).toInt();
             int end = args.substring(p2 + 1).toInt();
-            if (idx < 0 || (size_t)idx >= segments.size()) Serial.println("Invalid index");
-            else if (end < start) Serial.println("Error: end<start");
-            else {
+            if (idx < 0 || (size_t)idx >= segments.size())
+                Serial.println("Invalid index");
+            else if (end < start)
+                Serial.println("Error: end<start");
+            else
+            {
                 segments[idx]->setRange(start, end);
                 Serial.print("Segment ");
                 Serial.print(idx);
@@ -251,17 +289,25 @@ inline void handleCommandLine(const String &line)
                 Serial.println(end);
             }
         }
-    } else if (cmd == "setsegeffect") {
+    }
+    else if (cmd == "setsegeffect")
+    {
         int d = args.indexOf(' ');
-        if (d < 0) Serial.println("Usage: setsegeffect <idx> <effect>");
-        else {
+        if (d < 0)
+            Serial.println("Usage: setsegeffect <idx> <effect>");
+        else
+        {
             int idx = args.substring(0, d).toInt();
             String eff = args.substring(d + 1);
-            if (idx < 0 || (size_t)idx >= segments.size()) Serial.println("Invalid index");
-            else {
+            if (idx < 0 || (size_t)idx >= segments.size())
+                Serial.println("Invalid index");
+            else
+            {
                 EffectType e = effectFromString(eff);
-                if (e == EffectType::UNKNOWN) Serial.println("Invalid effect");
-                else {
+                if (e == EffectType::UNKNOWN)
+                    Serial.println("Invalid effect");
+                else
+                {
                     applyEffectToSegment(segments[idx], e);
                     segments[idx]->activeEffect = static_cast<PixelStrip::Segment::SegmentEffect>(e);
                     segments[idx]->update();
@@ -273,14 +319,20 @@ inline void handleCommandLine(const String &line)
                 }
             }
         }
-    } else if (cmd == "setsegbrightness") {
+    }
+    else if (cmd == "setsegbrightness")
+    {
         int d = args.indexOf(' ');
-        if (d < 0) Serial.println("Usage: setsegbrightness <idx> <0-255>");
-        else {
+        if (d < 0)
+            Serial.println("Usage: setsegbrightness <idx> <0-255>");
+        else
+        {
             int idx = args.substring(0, d).toInt();
             uint8_t b = constrain(args.substring(d + 1).toInt(), 0, 255);
-            if (idx < 0 || (size_t)idx >= segments.size()) Serial.println("Invalid segment index");
-            else {
+            if (idx < 0 || (size_t)idx >= segments.size())
+                Serial.println("Invalid segment index");
+            else
+            {
                 segments[idx]->setBrightness(b);
                 segments[idx]->update();
                 strip.show();
@@ -290,17 +342,22 @@ inline void handleCommandLine(const String &line)
                 Serial.println(b);
             }
         }
-    } else if (cmd.equalsIgnoreCase("getstatus")) {
+    }
+    else if (cmd.equalsIgnoreCase("getstatus"))
+    {
         String response = "{";
         response += "\"effects\":[";
-        for (uint8_t i = 0; i < EFFECT_COUNT; ++i) {
+        for (uint8_t i = 0; i < EFFECT_COUNT; ++i)
+        {
             response += "\"" + String(EFFECT_NAMES[i]) + "\"";
-            if (i < EFFECT_COUNT - 1) response += ",";
+            if (i < EFFECT_COUNT - 1)
+                response += ",";
         }
         response += "],";
         response += "\"segments\":[";
         auto &v = strip.getSegments();
-        for (size_t i = 0; i < v.size(); ++i) {
+        for (size_t i = 0; i < v.size(); ++i)
+        {
             auto *s = v[i];
             response += "{\"id\":" + String(s->getId());
             response += ",\"name\":\"" + String(s->getName().c_str()) + "\"";
@@ -308,14 +365,17 @@ inline void handleCommandLine(const String &line)
             response += ",\"endLed\":" + String(s->endIndex());
             response += ",\"brightness\":" + String(s->getBrightness());
             response += ",\"effect\":\"" + String(EFFECT_NAMES[(uint8_t)s->activeEffect]) + "\"}";
-            if (i + 1 < v.size()) response += ',';
+            if (i + 1 < v.size())
+                response += ',';
         }
         response += "]}";
 
-        if (connectedCentral) {
+        if (connectedCentral)
+        {
             isSendingMultiPart = true;
             const int chunkSize = 20;
-            for (unsigned int i = 0; i < response.length(); i += chunkSize) {
+            for (unsigned int i = 0; i < response.length(); i += chunkSize)
+            {
                 String chunk = response.substring(i, i + chunkSize);
                 cmdCharacteristic.writeValue((uint8_t *)chunk.c_str(), chunk.length());
                 delay(10);
@@ -324,108 +384,80 @@ inline void handleCommandLine(const String &line)
             isSendingMultiPart = false;
         }
         Serial.println(response);
-    } else if (cmd.equalsIgnoreCase("batchconfig")) {
+    }
+    else if (cmd.equalsIgnoreCase("batchconfig"))
+    {
         handleBatchConfigJson(args);
-    } else {
+    }
+    else
+    {
         Serial.print("Unknown cmd: ");
         Serial.println(cmd.c_str());
     }
 }
-
 
 //-----------------------------------------------------------------------------
 // handleBinarySerial(): execute binary commands over Serial (same as BLE)
 //-----------------------------------------------------------------------------
 inline void handleBinarySerial(const uint8_t *data, size_t len)
 {
-    if (!len) return;
+    if (!len)
+        return;
 
     uint8_t cmdId = data[0];
     bool needsAck = true;
 
-    // --- Batch Config: Reassemble Chunks ---
-    if (cmdId == CMD_BATCH_CONFIG || !jsonBuffer.isEmpty()) {
-        if (cmdId == CMD_BATCH_CONFIG) {
-            jsonBuffer = ""; // Start fresh on new batch command
-            jsonBuffer.concat((const char*)(data + 1), len - 1);
-        } else {
-            jsonBuffer.concat((const char*)data, len);
-        }
-
-        StaticJsonDocument<1024> doc;
-        if (deserializeJson(doc, jsonBuffer) == DeserializationError::Ok) {
-            Serial.println("Batch config JSON fully received and parsed.");
-            handleBatchConfigJson(jsonBuffer);
-            jsonBuffer = ""; // Clear buffer
-        } else {
-            Serial.println("...Partial batch config received, waiting for more...");
-        }
-    } else {
-        // --- Handle all other non-batch commands ---
-        switch (cmdId) {
-            case CMD_SET_COLOR:
-                if (len >= 4) {
-                    activeR = data[1];
-                    activeG = data[2];
-                    activeB = data[3];
-                    strip.show();
-                }
-                break;
-            case CMD_SET_EFFECT:
-                if (len >= 2 && data[1] < EFFECT_COUNT)
-                    applyEffectToSegment(seg, (EffectType)data[1]);
-                break;
-            case CMD_SET_BRIGHTNESS:
-                if (len >= 2) {
-                    strip.setActiveBrightness(data[1]);
-                    strip.show();
-                }
-                break;
-            case CMD_SET_SEG_BRIGHT:
-                if (len >= 3 && data[1] < strip.getSegments().size()) {
-                    auto *s = strip.getSegments()[data[1]];
-                    s->setBrightness(data[2]);
-                    s->update();
-                    strip.show();
-                }
-                break;
-            case CMD_SELECT_SEGMENT:
-                if (len >= 2 && data[1] < strip.getSegments().size())
-                    seg = strip.getSegments()[data[1]];
-                break;
-            case CMD_CLEAR_SEGMENTS:
-                strip.clearUserSegments();
-                seg = strip.getSegments()[0];
-                break;
-            case CMD_SET_SEG_RANGE:
-                if (len >= 6 && data[1] < strip.getSegments().size()) {
-                    auto *s = strip.getSegments()[data[1]];
-                    s->setRange((data[2] << 8) | data[3], (data[4] << 8) | data[5]);
-                }
-                break;
-            case CMD_GET_STATUS:
-                handleCommandLine("getstatus");
-                needsAck = false;
-                break;
-            case CMD_NUM_PIXELS: {
-                String resp = String("{\"numpixels\":") + LED_COUNT + String("}");
-                if(connectedCentral) cmdCharacteristic.writeValue(resp.c_str());
-                Serial.println(resp);
-                }
-                break;
-             case CMD_GET_EFFECT_INFO:
-                handleCommandLine("geteffectinfo");
-                needsAck = false;
-                break;
+    // --- State Machine for Batch Transfer ---
+    if (cmdId == CMD_BATCH_CONFIG)
+    {
+        isReceivingBatch = true;
+        jsonBuffer = ""; // Start a new batch transfer
+        jsonBuffer.concat((const char *)(data + 1), len - 1);
+        Serial.println("Starting batch config reception...");
+    }
+    else if (isReceivingBatch)
+    {
+        // This is a continuation chunk. It does NOT have a command ID prefix.
+        jsonBuffer.concat((const char *)data, len);
+    }
+    else
+    {
+        // This is a single, non-batch command.
+        switch (cmdId)
+        {
+        case CMD_GET_STATUS:
+            handleCommandLine("getstatus");
+            needsAck = false;
+            break;
+        // Handle other single-shot commands here
+        default:
+            break;
         }
     }
 
-    if (needsAck && connectedCentral) {
+    // After processing the chunk, check if a batch is complete
+    if (isReceivingBatch)
+    {
+        StaticJsonDocument<1024> doc;
+        if (deserializeJson(doc, jsonBuffer) == DeserializationError::Ok)
+        {
+            Serial.println("Batch config JSON fully received and parsed.");
+            handleBatchConfigJson(jsonBuffer);
+            isReceivingBatch = false; // End of batch
+            jsonBuffer = "";          // Clear buffer
+        }
+        else
+        {
+            Serial.println("...Partial batch config received, waiting for more...");
+        }
+    }
+
+    if (needsAck && connectedCentral)
+    {
         uint8_t ack_byte = CMD_ACK;
         cmdCharacteristic.writeValue(&ack_byte, 1);
     }
 }
-
 
 //-----------------------------------------------------------------------------
 // processSerial(): read and dispatch USB Serial commands (ASCII and binary)
@@ -483,13 +515,15 @@ inline void updateDigHeartbeat()
 
 inline void sendBleHeartbeat()
 {
-    if (isSendingMultiPart) return;
+    if (isSendingMultiPart)
+        return;
 
     if (connectedCentral && millis() - lastHeartbeatTime >= HEARTBEAT_INTERVAL)
     {
         lastHeartbeatTime = millis();
         uint8_t beat = 0;
-        if (cmdCharacteristic.canWrite()) {
+        if (cmdCharacteristic.canWrite())
+        {
             cmdCharacteristic.writeValue(&beat, 1);
         }
     }
@@ -497,9 +531,11 @@ inline void sendBleHeartbeat()
 
 inline void processBLE()
 {
-    if (!connectedCentral) {
+    if (!connectedCentral)
+    {
         BLEDevice central = BLE.central();
-        if (central) {
+        if (central)
+        {
             connectedCentral = central;
             Serial.print("[BLE] Connected: ");
             Serial.println(connectedCentral.address());
@@ -507,21 +543,40 @@ inline void processBLE()
         }
     }
 
-    if (connectedCentral && connectedCentral.connected()) {
-        if (cmdCharacteristic.written()) {
+    if (connectedCentral && connectedCentral.connected())
+    {
+        if (cmdCharacteristic.written())
+        {
             size_t len = cmdCharacteristic.valueLength();
             uint8_t buf[256];
-            if (len > sizeof(buf)) len = sizeof(buf);
+            if (len > sizeof(buf))
+                len = sizeof(buf);
             memcpy(buf, cmdCharacteristic.value(), len);
-            
+
+            // Only print for the start of a new command, not for every data chunk
+            if (!isReceivingBatch || buf[0] == CMD_BATCH_CONFIG)
+            {
+                Serial.print("[BLE] Cmd recv ID=0x");
+                if (buf[0] < 0x10)
+                    Serial.print('0');
+                Serial.print(buf[0], HEX);
+                Serial.print(" (");
+                Serial.print(getBLECmdName(buf[0]));
+                Serial.print("), len=");
+                Serial.println(len);
+            }
+
             handleBinarySerial(buf, len);
         }
         sendBleHeartbeat();
     }
-    else if (connectedCentral && !connectedCentral.connected()) {
+    else if (connectedCentral && !connectedCentral.connected())
+    {
         Serial.print("[BLE] Disconnected from: ");
         Serial.println(connectedCentral.address());
         connectedCentral = BLEDevice();
+        isReceivingBatch = false; // Reset batch state on disconnect
+        jsonBuffer = "";
         BLE.advertise();
         Serial.println("[BLE] Advertising restarted");
     }
