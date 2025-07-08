@@ -1,0 +1,25 @@
+{
+  "segments": [
+    {
+      "name": "Section A",
+      "startLed": 0,
+      "endLed": 10,
+      "brightness": 200,
+      "effect": "RainbowCycle"
+    },
+    {
+      "name": "Section B",
+      "startLed": 11,
+      "endLed": 20,
+      "brightness": 150,
+      "effect": "Fire"
+    },
+    {
+      "name": "Section C",
+      "startLed": 21,
+      "endLed": 48,
+      "brightness": 255,
+      "effect": "SolidColor"
+    }
+  ]
+}

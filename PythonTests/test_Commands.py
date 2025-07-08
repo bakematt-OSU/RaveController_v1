@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-Comprehensive test harness for RaveController_v1 serial commands
-Sends ASCII and binary commands and validates basic responses, including
-an interactive mode to verify each effect visually.
+Comprehensive test harness for RaveController_v1 serial commands.
+This script has been updated to match the BaseEffect-based firmware.
 """
 import argparse
 import serial
@@ -22,206 +21,181 @@ CMD_CLEAR_SEGMENTS   = 0x06
 CMD_SET_SEG_RANGE    = 0x07
 CMD_GET_STATUS       = 0x08
 CMD_BATCH_CONFIG     = 0x09
-CMD_NUM_PIXELS       = 0x0A  # newly added
-CMD_GET_EFFECT_INFO  = 0x0B  # newly added
+CMD_NUM_PIXELS       = 0x0A
+CMD_GET_EFFECT_INFO  = 0x0B
 
 BAUD  = 115200
 DELAY = 0.2  # seconds between commands
 
+# Updated ASCII commands to match the new firmware API
 ASCII_COMMANDS = [
     "clearsegments",
     "addsegment 0 50",
     "addsegment 51 100",
     "listsegments",
     "setsegrange 1 60 90",
-    "setsegeffect 1 SolidColor",
-    "setsegname 1 middle",
+    "seteffect 1 SolidColor",
+    "select 1", # Select segment 1 to set its color
     "setcolor 128 64 32",
-    "listeffects",
-    "listeffectsjson",
-    "seteffect Fire",
-    "setbrightness 200",
+    "select 0", # Switch back to segment 0
+    "seteffect 0 Fire",
     "setsegbrightness 0 150",
     "getstatus",
-    "numpixels",          # test the new LED count command
-    "geteffectinfo",      # test the new effect-info command
-    "batchconfig {\"segments\":[{\"start\":0,\"end\":20,\"name\":\"segA\",\"brightness\":100,\"effect\":\"SolidColor\"}],\"brightness\":180,\"color\":[10,20,30]}"
+    "geteffectinfo 0",
+    # Corrected batchconfig JSON with proper keys
+    "batchconfig {\"segments\":[{\"startLed\":0,\"endLed\":20,\"name\":\"segA\",\"brightness\":100,\"effect\":\"SolidColor\"}]}"
 ]
 
+# Simplified binary commands to only those with explicit handlers in C++
 BINARY_COMMANDS = [
     bytearray([CMD_CLEAR_SEGMENTS]),
-    bytearray([CMD_SELECT_SEGMENT, 1]),
-    bytearray([CMD_SET_SEG_RANGE, 1, 0x00, 0x0A, 0x00, 0x1E]),
-    bytearray([CMD_SET_SEG_BRIGHT, 1, 128]),
-    bytearray([CMD_SET_COLOR, 255, 0, 128]),
-    bytearray([CMD_SET_EFFECT, 3]),
-    bytearray([CMD_SET_BRIGHTNESS, 100]),
     bytearray([CMD_GET_STATUS]),
-    bytearray([CMD_NUM_PIXELS]),
-    bytearray([CMD_GET_EFFECT_INFO]),  # test the new binary effect-info command
+]
+
+# Effect names are now hardcoded as there's no command to list them all.
+# This list is derived from the createEffectByName function in Processes.cpp.
+AVAILABLE_EFFECTS = [
+    "Fire", "SolidColor", "RainbowChase", "RainbowCycle", "AccelMeter",
+    "Flare", "FlashOnTrigger", "KineticRipple", "TheaterChase", "ColoredFire"
 ]
 
 def load_expected_pixels(config_path=None):
     """
-    Locate src/config.h (not Config.h) and extract LED_COUNT,
-    whether it's defined via #define or static const.
+    Locate src/Config.h and extract LED_COUNT.
     """
     if config_path is None:
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.join(base_dir, '..', 'src', 'config.h')
+        # Corrected filename to Config.h
+        config_path = os.path.join(base_dir, '..', 'src', 'Config.h')
     config_path = os.path.normpath(os.path.abspath(config_path))
 
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Config file not found at {config_path}")
 
-    text = open(config_path, 'r').read()
-    m = re.search(r'#define\s+LED_COUNT\s+(\d+)', text)
-    if not m:
-        m = re.search(r'\bLED_COUNT\s*=\s*(\d+)', text)
-    if not m:
-        raise RuntimeError(f"LED_COUNT not defined in {config_path}")
-    return int(m.group(1))
+    with open(config_path, 'r') as f:
+        text = f.read()
+
+    # Regex to find LED_COUNT, works for #define and constexpr
+    match = re.search(r'(?:#define|constexpr\s+\w+\s+)\bLED_COUNT\s+[=]?\s*(\d+)', text)
+    if not match:
+        raise RuntimeError(f"Could not find LED_COUNT in {config_path}")
+    return int(match.group(1))
 
 EXPECTED_PIXELS = load_expected_pixels()
 
 def read_all(ser):
+    """Read all available data from the serial port with a timeout."""
     data = b""
-    start = time.time()
-    while time.time() - start < DELAY:
-        chunk = ser.read(ser.in_waiting or 1)
-        if not chunk:
-            break
-        data += chunk
+    start_time = time.time()
+    while time.time() - start_time < DELAY:
+        if ser.in_waiting > 0:
+            data += ser.read(ser.in_waiting)
+        else:
+            time.sleep(0.01) # Avoid busy-waiting
+    
     try:
         return data.decode("utf-8", errors="ignore").strip()
-    except:
+    except UnicodeDecodeError:
         return str(data)
 
 def send_ascii(ser, cmd):
-    ser.write((cmd + "\n").encode())
+    """Send an ASCII command and print the response, with validation."""
     print(f">>> ASCII: {cmd}")
+    ser.write((cmd + "\n").encode())
     time.sleep(DELAY)
     resp = read_all(ser)
     print(resp or "<no response>")
 
-    # JSON validations
-    if cmd == "listeffectsjson":
-        try:
-            obj = json.loads(resp)
-            assert "effects" in obj and isinstance(obj["effects"], list)
-            print("  -> listeffectsjson OK")
-        except Exception as e:
-            print(f"  !! listeffectsjson JSON error: {e}")
-
+    # --- JSON Validations ---
     if cmd == "getstatus":
         try:
             obj = json.loads(resp)
-            assert "effects" in obj and "segments" in obj
+            assert "segments" in obj and isinstance(obj["segments"], list)
             print("  -> getstatus JSON OK")
-        except Exception as e:
+        except (json.JSONDecodeError, AssertionError) as e:
             print(f"  !! getstatus JSON error: {e}")
-
-    if cmd == "numpixels":
+            
+    if cmd.startswith("geteffectinfo"):
         try:
             obj = json.loads(resp)
-            assert obj.get("numpixels") == EXPECTED_PIXELS, \
-                   f"expected {EXPECTED_PIXELS}, got {obj.get('numpixels')}"
-            print(f"  -> numpixels OK ({obj['numpixels']})")
-        except Exception as e:
-            print(f"  !! numpixels JSON error: {e}")
-
-    if cmd == "geteffectinfo":
-        try:
-            obj = json.loads(resp)
-            assert "effects" in obj and isinstance(obj["effects"], list)
-            # each effect should have name and params array
-            for eff in obj["effects"]:
-                assert "name" in eff and "params" in eff
-                assert isinstance(eff["params"], list)
+            assert "effect" in obj and "params" in obj
+            assert isinstance(obj["params"], list)
             print("  -> geteffectinfo JSON OK")
-        except Exception as e:
+        except (json.JSONDecodeError, AssertionError) as e:
             print(f"  !! geteffectinfo JSON error: {e}")
 
     return resp
 
 def send_binary(ser, packet):
-    ser.write(packet)
+    """Send a binary command packet and print the response."""
     print(f">>> BINARY: {[hex(b) for b in packet]}")
+    ser.write(packet)
     time.sleep(DELAY)
     resp = read_all(ser)
     print(resp or "<no response>")
 
-    # JSON validations for status, numpixels, effectinfo
-    key = None
+    # --- JSON Validation for Binary GET_STATUS ---
     if packet[0] == CMD_GET_STATUS:
-        key = "segments"
-    elif packet[0] == CMD_NUM_PIXELS:
-        key = "numpixels"
-    elif packet[0] == CMD_GET_EFFECT_INFO:
-        key = "effects"
-
-    if key:
         try:
             obj = json.loads(resp)
-            assert key in obj
-            if key == "numpixels":
-                assert obj[key] == EXPECTED_PIXELS
-            elif key == "effects":
-                # ensure each effect object has name and params
-                for eff in obj["effects"]:
-                    assert "name" in eff and "params" in eff
-            print(f"  -> binary {key} JSON OK")
-        except Exception as e:
-            print(f"  !! binary {key} JSON error: {e}")
+            assert "segments" in obj
+            print("  -> binary GET_STATUS JSON OK")
+        except (json.JSONDecodeError, AssertionError) as e:
+            print(f"  !! binary GET_STATUS JSON error: {e}")
 
     return resp
 
 def interactive_effects_check(ser):
-    """Fetch list of effects, set each one, and ask user to verify."""
+    """Set each available effect and ask the user to verify visually."""
     print("\n--- INTERACTIVE EFFECTS CHECK ---")
-    raw = send_ascii(ser, "listeffectsjson")
-    try:
-        effects = json.loads(raw)["effects"]
-    except Exception:
-        print("Failed to fetch effect list; skipping interactive check.")
-        return
-
+    print("This test will cycle through all known effects.")
+    
     results = {}
-    for effect in effects:
-        send_ascii(ser, f"seteffect {effect}")
-        ans = input(f"[Effect: {effect}] Display OK? (y/n): ").strip().lower()
-        results[effect] = (ans == "y")
+    for effect_name in AVAILABLE_EFFECTS:
+        # Set the effect on segment 0
+        send_ascii(ser, f"seteffect 0 {effect_name}")
+        ans = input(f"  [Effect: {effect_name}] Display OK? (y/n): ").strip().lower()
+        results[effect_name] = (ans == "y")
 
-    print("\nEffect Check Summary:")
+    print("\n--- Effect Check Summary ---")
     for eff, passed in results.items():
-        print(f"  {eff:20s} {'PASS' if passed else 'FAIL'}")
+        status = 'PASS' if passed else 'FAIL'
+        print(f"  {eff:20s} {status}")
 
 def run_tests(port, baud):
+    """Main function to run all automated and interactive tests."""
     print(f"Opening serial port {port} @ {baud} baud")
+    print(f"Found LED_COUNT = {EXPECTED_PIXELS} in Config.h")
     try:
         with serial.Serial(port, baud, timeout=DELAY) as ser:
-            time.sleep(1)
+            time.sleep(1)  # Wait for Arduino to reset
             ser.reset_input_buffer()
-
-            if input("Run interactive effects-check? (y/N): ").strip().lower() == "y":
-                interactive_effects_check(ser)
 
             print("\n--- ASCII COMMANDS ---")
             for cmd in ASCII_COMMANDS:
                 send_ascii(ser, cmd)
+                print("-" * 20)
 
             print("\n--- BINARY COMMANDS ---")
             for packet in BINARY_COMMANDS:
                 send_binary(ser, packet)
+                print("-" * 20)
+                
+            if input("\nRun interactive effects-check? (y/N): ").strip().lower() == "y":
+                interactive_effects_check(ser)
 
             print("\nAll tests completed.")
+            
     except serial.SerialException as e:
-        print(f"Error opening port {port}: {e}")
+        print(f"FATAL: Error opening serial port {port}: {e}")
+        sys.exit(1)
+    except FileNotFoundError as e:
+        print(f"FATAL: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Test RaveController commands")
-    parser.add_argument("--port", required=True, help="Serial port (e.g. COM7 or /dev/ttyACM0)")
-    parser.add_argument("--baud", type=int, default=BAUD, help="Baud rate")
+    parser = argparse.ArgumentParser(description="Test harness for RaveController_v1 firmware.")
+    parser.add_argument("--port", required=True, help="Serial port name (e.g., COM7 or /dev/ttyACM0)")
+    parser.add_argument("--baud", type=int, default=BAUD, help=f"Baud rate (default: {BAUD})")
     args = parser.parse_args()
     run_tests(args.port, args.baud)

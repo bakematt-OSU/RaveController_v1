@@ -6,7 +6,7 @@
 #include "BaseEffect.h"
 #include <Arduino.h>
 
-class RainbowChaseEffect : public BaseEffect {
+class RainbowChase : public BaseEffect {
 private:
     PixelStrip::Segment* segment;
     EffectParameter params[1];
@@ -15,7 +15,7 @@ private:
     unsigned long lastUpdate;
 
 public:
-    RainbowChaseEffect(PixelStrip::Segment* seg) : segment(seg) {
+    RainbowChase(PixelStrip::Segment* seg) : segment(seg) {
         params[0].name = "speed";
         params[0].type = ParamType::INTEGER;
         params[0].value.intValue = 30;   // 30ms interval

@@ -9,7 +9,7 @@
 // This global variable signals when a step/movement has been detected.
 extern volatile bool triggerRipple;
 
-class KineticRippleEffect : public BaseEffect {
+class KineticRipple : public BaseEffect {
 private:
     PixelStrip::Segment* segment;
     EffectParameter params[3];
@@ -19,7 +19,7 @@ private:
     RgbColor rippleColor;
 
 public:
-    KineticRippleEffect(PixelStrip::Segment* seg) : segment(seg) {
+    KineticRipple(PixelStrip::Segment* seg) : segment(seg) {
         params[0].name = "color";
         params[0].type = ParamType::COLOR;
         params[0].value.colorValue = 0x8A2BE2; // BlueViolet

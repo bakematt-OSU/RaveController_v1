@@ -6,13 +6,13 @@
 #include "BaseEffect.h"
 #include <Arduino.h>
 
-class FlashOnTriggerEffect : public BaseEffect {
+class FlashOnTrigger : public BaseEffect {
 private:
     PixelStrip::Segment* segment;
     EffectParameter params[1];
 
 public:
-    FlashOnTriggerEffect(PixelStrip::Segment* seg) : segment(seg) {
+    FlashOnTrigger(PixelStrip::Segment* seg) : segment(seg) {
         params[0].name = "flash_color";
         params[0].type = ParamType::COLOR;
         params[0].value.colorValue = 0xFFFFFF; // Default: white

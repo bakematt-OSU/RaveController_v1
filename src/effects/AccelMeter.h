@@ -9,13 +9,13 @@
 // Provided by your main.cpp (live accel data)
 extern float accelX;
 
-class AccelMeterEffect : public BaseEffect {
+class AccelMeter : public BaseEffect {
 private:
     PixelStrip::Segment* segment;
     EffectParameter params[2];
 
 public:
-    AccelMeterEffect(PixelStrip::Segment* seg) : segment(seg) {
+    AccelMeter(PixelStrip::Segment* seg) : segment(seg) {
         // Parameter 1: Bubble Color
         params[0].name = "color";
         params[0].type = ParamType::COLOR;

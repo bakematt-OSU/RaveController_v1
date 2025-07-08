@@ -6,13 +6,13 @@
 #include "BaseEffect.h"
 #include <Arduino.h>
 
-class SolidColorEffect : public BaseEffect {
+class SolidColor : public BaseEffect {
 private:
     PixelStrip::Segment* segment;
     EffectParameter params[1];
 
 public:
-    SolidColorEffect(PixelStrip::Segment* seg) : segment(seg) {
+    SolidColor(PixelStrip::Segment* seg) : segment(seg) {
         params[0].name = "color";
         params[0].type = ParamType::COLOR;
         params[0].value.colorValue = 0x800080; // Default: Purple

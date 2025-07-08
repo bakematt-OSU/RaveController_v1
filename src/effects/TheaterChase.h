@@ -6,7 +6,7 @@
 #include "BaseEffect.h"
 #include <Arduino.h>
 
-class TheaterChaseEffect : public BaseEffect {
+class TheaterChase : public BaseEffect {
 private:
     PixelStrip::Segment* segment;
     EffectParameter params[1];
@@ -16,7 +16,7 @@ private:
     uint8_t chaseOffset;
 
 public:
-    TheaterChaseEffect(PixelStrip::Segment* seg) : segment(seg) {
+    TheaterChase(PixelStrip::Segment* seg) : segment(seg) {
         params[0].name = "speed";
         params[0].type = ParamType::INTEGER;
         params[0].value.intValue = 50; // Default to a 50ms interval

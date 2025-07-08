@@ -1,0 +1,23 @@
+{
+  "segments": [
+    {
+      "name": "all",
+      "brightness": 50,
+      "effect": "SolidColor"
+    },
+    {
+      "name": "Fire Section",
+      "startLed": 50,
+      "endLed": 99,
+      "brightness": 200,
+      "effect": "Fire"
+    },
+    {
+      "name": "Rainbow Section",
+      "startLed": 150,
+      "endLed": 250,
+      "brightness": 255,
+      "effect": "RainbowChase"
+    }
+  ]
+}

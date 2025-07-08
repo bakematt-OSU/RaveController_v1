@@ -7,7 +7,7 @@
 #include "Triggers.h"
 #include <LittleFS_Mbed_RP2040.h>
 #include <stdio.h>
-// #include "effects/Effects.h" // The critical include for the EFFECT_LIST macro
+#include "effects/Effects.h" // The critical include for the EFFECT_LIST macro
 
 // --- External globals defined in main.cpp ---
 extern volatile int16_t sampleBuffer[];
@@ -435,43 +435,6 @@ void handleCommandLine(const String &line)
             Serial.println("ERR: segment/effect not found");
         }
     }
-    else if (cmd == "clearsegments")
-    {
-        strip.clearUserSegments();
-        seg = strip.getSegments()[0];
-        if (seg->activeEffect)
-        {
-            delete seg->activeEffect;
-        }
-        seg->activeEffect = createEffectByName("SolidColor", seg);
-        seg->update();
-        strip.show();
-        Serial.println("Segments cleared; active = 0");
-    }
-    else if (cmd == "addsegment")
-    {
-        int d = args.indexOf(' ');
-        if (d < 0)
-            Serial.println("Usage: addsegment <start> <end>");
-        else
-        {
-            int start = args.substring(0, d).toInt();
-            int end = args.substring(d + 1).toInt();
-            if (end < start)
-                Serial.println("Error: end<start");
-            else
-            {
-                strip.addSection(start, end, "seg" + String(segments.size()));
-                Serial.print("Added segment ");
-                Serial.print(segments.size() - 1);
-                Serial.print(" [");
-                Serial.print(start);
-                Serial.print("-");
-                Serial.print(end);
-                Serial.println("]");
-            }
-        }
-    }
     else
     {
         Serial.print("Unknown cmd: ");
@@ -479,7 +442,6 @@ void handleCommandLine(const String &line)
     }
 }
 
-// --- All other functions are preserved ---
 void processSerial()
 {
     while (Serial.available())
@@ -536,6 +498,7 @@ void processBLE()
             Serial.println(connectedCentral.address());
         }
     }
+
     if (connectedCentral && connectedCentral.connected())
     {
         if (cmdCharacteristic.written())
@@ -545,18 +508,11 @@ void processBLE()
             if (len > sizeof(buf))
                 len = sizeof(buf);
             memcpy(buf, cmdCharacteristic.value(), len);
-            if (!isReceivingBatch || buf[0] == CMD_BATCH_CONFIG)
-            {
-                Serial.print("[BLE] Cmd recv ID=0x");
-                if (buf[0] < 0x10)
-                    Serial.print('0');
-                Serial.print(buf[0], HEX);
-                Serial.print(" (");
-                Serial.print(getBLECmdName(buf[0]));
-                Serial.print("), len=");
-                Serial.println(len);
-            }
-            handleBinarySerial(buf, len);
+
+            // For now, assume BLE sends plain-text commands terminated by newline
+            String bleCommand = String((char *)buf, len);
+            bleCommand.trim();
+            handleCommandLine(bleCommand);
         }
     }
     else if (connectedCentral)
@@ -564,8 +520,6 @@ void processBLE()
         Serial.print("[BLE] Disconnected from: ");
         Serial.println(connectedCentral.address());
         connectedCentral = BLEDevice();
-        isReceivingBatch = false;
-        jsonBuffer = "";
         BLE.advertise();
         Serial.println("[BLE] Advertising restarted");
     }

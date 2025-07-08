@@ -6,11 +6,12 @@
 #include "BaseEffect.h"
 #include <Arduino.h>
 
-class FlareEffect : public BaseEffect {
+class Flare : public BaseEffect {
 private:
     PixelStrip::Segment* segment;
     EffectParameter params[2];
-    byte heat[300];
+    byte* heat = nullptr;
+    int heatSize = 0;
 
     byte qadd8(byte a, byte b) {
         unsigned int s = a + b;
@@ -23,17 +24,13 @@ private:
         byte t192 = round((temperature / 255.0) * 191);
         byte heatramp = (t192 & 0x3F) << 2;
 
-        if (t192 > 0x80) {
-            return RgbColor(255, 255, heatramp);
-        } else if (t192 > 0x40) {
-            return RgbColor(255, heatramp, 0);
-        } else {
-            return RgbColor(heatramp, 0, 0);
-        }
+        if (t192 > 0x80) return RgbColor(255, 255, heatramp);
+        else if (t192 > 0x40) return RgbColor(255, heatramp, 0);
+        else return RgbColor(heatramp, 0, 0);
     }
 
 public:
-    FlareEffect(PixelStrip::Segment* seg) : segment(seg) {
+    Flare(PixelStrip::Segment* seg) : segment(seg) {
         params[0].name = "sparking";
         params[0].type = ParamType::INTEGER;
         params[0].value.intValue = 50;
@@ -46,16 +43,28 @@ public:
         params[1].min_val = 0;
         params[1].max_val = 100;
 
-        memset(heat, 0, sizeof(heat));
+        if (segment != nullptr) {
+            // CORRECTED: Called the correct function 'PixelCount()'
+            heatSize = segment->getParent().getStrip().PixelCount();
+            heat = new byte[heatSize];
+            memset(heat, 0, heatSize);
+        }
+    }
+
+    ~Flare() override {
+        delete[] heat;
     }
 
     void update() override {
+        if (!heat) return;
+
         int sparking = params[0].value.intValue;
         int cooling  = params[1].value.intValue;
-
         int startPixel = segment->startIndex();
         int endPixel   = segment->endIndex();
         int len        = endPixel - startPixel + 1;
+
+        if (endPixel >= heatSize) { endPixel = heatSize - 1; }
 
         for (int i = startPixel; i <= endPixel; ++i) {
             heat[i] = qsub8(heat[i], random(0, ((cooling * 10) / len) + 2));
@@ -64,14 +73,15 @@ public:
             heat[k] = (heat[k - 1] + heat[k - 2] + heat[k - 2]) / 3;
         }
         
-        // --- Unique Flare Logic ---
         byte chance = segment->triggerIsActive
                       ? map(segment->triggerBrightness, 0, 255, 150, 255)
                       : sparking;
 
         if (random(255) < chance) {
             int idx = startPixel + random(7);
-            heat[idx] = qadd8(heat[idx], random(160, 255));
+            if(idx < heatSize) {
+               heat[idx] = qadd8(heat[idx], random(160, 255));
+            }
         }
 
         for (int j = startPixel; j <= endPixel; ++j) {
@@ -96,6 +106,6 @@ public:
             }
         }
     }
-};
+}; // <-- CORRECTED: Added missing closing brace
 
 #endif // FLARE_H
