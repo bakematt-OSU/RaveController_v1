@@ -17,6 +17,8 @@ public:
     class Segment
     {
     public:
+        void setColor(uint8_t r, uint8_t g, uint8_t b);
+
         uint8_t brightness = 255; // 0–255, default full
         void setBrightness(uint8_t b) { brightness = b; }
         uint8_t getBrightness() const { return brightness; }

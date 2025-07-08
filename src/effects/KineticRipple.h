@@ -7,9 +7,9 @@
 extern volatile bool triggerRipple;
 
 namespace KineticRipple {
-    inline bool rippleActive = false;
-    inline unsigned long rippleStartTime = 0;
-    inline RgbColor rippleColor;
+    static bool rippleActive = false;
+    static unsigned long rippleStartTime = 0;
+    static RgbColor rippleColor;
 
     inline void start(PixelStrip::Segment* seg, uint32_t c1, uint32_t /*c2*/) {
         seg->setEffect(PixelStrip::Segment::SegmentEffect::KineticRipple);

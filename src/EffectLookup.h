@@ -4,7 +4,7 @@
 #include "effects/Effects.h"
 #include "PixelStrip.h"
 #include "AllEffects.h"   // ← pulls in each effect’s .h (with its ns::start())
-#include "config.h"       // for activeR, activeG, activeB globals
+// #include "config.h"       // for activeR, activeG, activeB globals
 
 extern uint8_t activeR, activeG, activeB;
 
@@ -38,10 +38,9 @@ inline void applyEffectToSegment(PixelStrip::Segment *seg, EffectType effect) {
     seg->startEffect(PixelStrip::Segment::SegmentEffect::NONE);
 
     // pack RGB into 0xRRGGBB
-    uint32_t color1 = (uint32_t(activeR) << 16)
-                    | (uint32_t(activeG) << 8)
-                    |  uint32_t(activeB);
-    uint32_t color2 = color1;  // default second color = same
+// Use the segment's own stored color
+uint32_t color1 = seg->baseColor;
+uint32_t color2 = color1;  // default second color = same
 
     switch (effect) {
         #define EFFECT_CASE(name, ns)         \

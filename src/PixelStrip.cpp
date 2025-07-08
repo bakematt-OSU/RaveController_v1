@@ -196,3 +196,7 @@ void PixelStrip::propagateTriggerState(bool triggered, uint8_t brightness) {
         }
     }
 }
+
+void PixelStrip::Segment::setColor(uint8_t r, uint8_t g, uint8_t b) {
+    baseColor = parent.Color(r, g, b);
+}
