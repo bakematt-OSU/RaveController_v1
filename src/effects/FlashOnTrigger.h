@@ -2,44 +2,55 @@
 #define FLASHONTRIGGER_H
 
 #include "../PixelStrip.h"
+#include "EffectParameter.h"
+#include "BaseEffect.h"
+#include <Arduino.h>
 
-namespace FlashOnTrigger {
-    // Start the flash-on-trigger effect
-    inline void start(PixelStrip::Segment* seg, uint32_t c1, uint32_t /*c2*/) {
-        if (!seg) return;
-        seg->setEffect(PixelStrip::Segment::SegmentEffect::FlashOnTrigger);
-        seg->active    = true;
-        seg->baseColor = c1;
+class FlashOnTriggerEffect : public BaseEffect {
+private:
+    PixelStrip::Segment* segment;
+    EffectParameter params[1];
+
+public:
+    FlashOnTriggerEffect(PixelStrip::Segment* seg) : segment(seg) {
+        params[0].name = "flash_color";
+        params[0].type = ParamType::COLOR;
+        params[0].value.colorValue = 0xFFFFFF; // Default: white
     }
 
-    // Update one frame: light the segment while trigger is active, else clear it
-    inline void update(PixelStrip::Segment* seg) {
-        if (!seg || !seg->active) return;
+    void update() override {
+        if (segment->triggerIsActive) {
+            uint32_t flashColorValue = params[0].value.colorValue;
 
-        PixelStrip &strip = seg->getParent();
-
-        if (seg->triggerIsActive) {
-            // Build and dim the color
-            uint32_t bc = seg->baseColor;
-            RgbColor fc(
-                (bc >> 16) & 0xFF,
-                (bc >> 8)  & 0xFF,
-                bc         & 0xFF
+            RgbColor finalColor(
+                (flashColorValue >> 16) & 0xFF,
+                (flashColorValue >> 8)  & 0xFF,
+                flashColorValue         & 0xFF
             );
-            fc.Dim(seg->triggerBrightness);
-            fc.Dim(seg->getBrightness());
+            finalColor.Dim(segment->triggerBrightness);
+            finalColor.Dim(segment->getBrightness());
 
-            // Convert to packed color and set each LED
-            uint32_t raw = strip.Color(fc.R, fc.G, fc.B);
-            for (uint16_t i = seg->startIndex(); i <= seg->endIndex(); ++i) {
-                strip.setPixel(i, raw);
+            uint32_t rawColor = segment->getParent().Color(finalColor.R, finalColor.G, finalColor.B);
+            for (uint16_t i = segment->startIndex(); i <= segment->endIndex(); ++i) {
+                segment->getParent().setPixel(i, rawColor);
             }
-        }
-        else {
-            // Turn the segment off
-            seg->allOff();
+        } else {
+            segment->allOff();
         }
     }
-}
+
+    const char* getName() const override { return "FlashOnTrigger"; }
+    int getParameterCount() const override { return 1; }
+    EffectParameter* getParameter(int index) override {
+        if (index == 0) return &params[0];
+        return nullptr;
+    }
+
+    void setParameter(const char* name, uint32_t value) override {
+        if (strcmp(params[0].name, name) == 0 && params[0].type == ParamType::COLOR) {
+            params[0].value.colorValue = value;
+        }
+    }
+};
 
 #endif // FLASHONTRIGGER_H

@@ -1,6 +1,17 @@
 #ifndef EFFECTS_H
 #define EFFECTS_H
 
+
+#include "RainbowChase.h"
+#include "SolidColor.h"
+#include "FlashOnTrigger.h"
+#include "RainbowCycle.h"
+#include "TheaterChase.h"
+#include "Fire.h"
+#include "Flare.h"
+#include "ColoredFire.h"
+#include "AccelMeter.h"
+#include "KineticRipple.h"
 // Master list of segment effects.
 // Format: X(EnumName, ClassName)
 #define EFFECT_LIST(X)                      \

@@ -2,47 +2,81 @@
 #define ACCELMETER_H
 
 #include "../PixelStrip.h"
+#include "EffectParameter.h"
+#include "BaseEffect.h"    // <<-- Add this line
 #include <Arduino.h>
 
-extern float accelX, accelY, accelZ;
+// Provided by your main.cpp (live accel data)
+extern float accelX;
 
-namespace AccelMeter {
-    const int BUBBLE_SIZE = 5;
+class AccelMeterEffect : public BaseEffect {
+private:
+    PixelStrip::Segment* segment;
+    EffectParameter params[2];
 
-    // Initialize the accelerometer meter effect
-    inline void start(PixelStrip::Segment* seg, uint32_t color1, uint32_t /*color2*/) {
-        seg->setEffect(PixelStrip::Segment::SegmentEffect::AccelMeter);
-        seg->active    = true;
-        seg->interval  = 10;
-        seg->baseColor = color1;
+public:
+    AccelMeterEffect(PixelStrip::Segment* seg) : segment(seg) {
+        // Parameter 1: Bubble Color
+        params[0].name = "color";
+        params[0].type = ParamType::COLOR;
+        params[0].value.colorValue = 0x00FF00; // Green
+
+        // Parameter 2: Bubble Size
+        params[1].name = "bubble_size";
+        params[1].type = ParamType::INTEGER;
+        params[1].value.intValue = 5;
+        params[1].min_val = 1;
+        params[1].max_val = 25;
     }
 
-    // Update one frame of the accelerometer meter
-    inline void update(PixelStrip::Segment* seg) {
-        if (!seg->active || (millis() - seg->lastUpdate < seg->interval)) return;
-        seg->lastUpdate = millis();
+    void update() override {
+        uint32_t bubbleColorValue = params[0].value.colorValue;
+        int      bubbleSize       = params[1].value.intValue;
 
-        int startPixel = seg->startIndex();
-        int numPixels  = seg->endIndex() - startPixel + 1;
+        int startPixel = segment->startIndex();
+        int numPixels  = segment->endIndex() - startPixel + 1;
+        float mapped_position = (accelX + 1.0f) * (numPixels - bubbleSize) / 2.0f;
+        int centerPixel = constrain((int)mapped_position, 0, numPixels - bubbleSize) + startPixel;
 
-        // Map accelX from [-1,1] to [0, numPixels - BUBBLE_SIZE]
-        float mapped = (accelX + 1.0f) * (numPixels - BUBBLE_SIZE) / 2.0f;
-        int center = constrain((int)mapped, 0, numPixels - BUBBLE_SIZE) + startPixel;
-
-        // Build the bubble color
-        RgbColor bubbleColor(
-            (seg->baseColor >> 16) & 0xFF,
-            (seg->baseColor >> 8)  & 0xFF,
-            seg->baseColor         & 0xFF
+        RgbColor finalBubbleColor(
+            (bubbleColorValue >> 16) & 0xFF,
+            (bubbleColorValue >> 8)  & 0xFF,
+            bubbleColorValue         & 0xFF
         );
-        bubbleColor.Dim(seg->getBrightness());
+        finalBubbleColor.Dim(segment->getBrightness());
 
-        // Clear and draw the bubble
-        seg->allOff();
-        for (int i = 0; i < BUBBLE_SIZE; ++i) {
-            seg->getParent().getStrip().SetPixelColor(center + i, bubbleColor);
+        segment->allOff();
+        for (int i = 0; i < bubbleSize; ++i) {
+            segment->getParent().getStrip().SetPixelColor(centerPixel + i, finalBubbleColor);
         }
     }
-}
+
+    // --- Polymorphic API ---
+
+    const char* getName() const override { return "AccelMeter"; }
+    int getParameterCount() const override { return 2; }
+    EffectParameter* getParameter(int index) override {
+        if (index >= 0 && index < 2) return &params[index];
+        return nullptr;
+    }
+
+    // Optional: Allow set by name/type
+    void setParameter(const char* name, int value) override {
+        for (int i = 0; i < 2; ++i) {
+            if (strcmp(params[i].name, name) == 0 && params[i].type == ParamType::INTEGER) {
+                params[i].value.intValue = value;
+                return;
+            }
+        }
+    }
+    void setParameter(const char* name, uint32_t value) override {
+        for (int i = 0; i < 2; ++i) {
+            if (strcmp(params[i].name, name) == 0 && params[i].type == ParamType::COLOR) {
+                params[i].value.colorValue = value;
+                return;
+            }
+        }
+    }
+};
 
 #endif // ACCELMETER_H

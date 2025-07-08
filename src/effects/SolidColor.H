@@ -2,25 +2,43 @@
 #define SOLIDCOLOR_H
 
 #include "../PixelStrip.h"
+#include "EffectParameter.h"
+#include "BaseEffect.h"
+#include <Arduino.h>
 
-namespace SolidColor {
-    // Initialize solid-color effect
-    inline void start(PixelStrip::Segment* seg, uint32_t c1, uint32_t /*c2*/) {
-        seg->setEffect(PixelStrip::Segment::SegmentEffect::SolidColor);
-        seg->setBrightness(seg->getBrightness());
-        seg->active = true;
-        seg->baseColor = c1;
+class SolidColorEffect : public BaseEffect {
+private:
+    PixelStrip::Segment* segment;
+    EffectParameter params[1];
+
+public:
+    SolidColorEffect(PixelStrip::Segment* seg) : segment(seg) {
+        params[0].name = "color";
+        params[0].type = ParamType::COLOR;
+        params[0].value.colorValue = 0x800080; // Default: Purple
     }
 
-    // Update one frame of the solid-color effect
-    inline void update(PixelStrip::Segment* seg) {
-        if (!seg->active) return;
+    void update() override {
+        uint32_t colorValue = params[0].value.colorValue;
+        uint32_t scaledColor = PixelStrip::scaleColor(colorValue, segment->getBrightness());
 
-        uint32_t scaledColor = PixelStrip::scaleColor(seg->baseColor, seg->getBrightness());
-        for (uint16_t i = seg->startIndex(); i <= seg->endIndex(); ++i) {
-            seg->getParent().setPixel(i, scaledColor);
+        for (uint16_t i = segment->startIndex(); i <= segment->endIndex(); ++i) {
+            segment->getParent().setPixel(i, scaledColor);
         }
     }
-}
+
+    const char* getName() const override { return "SolidColor"; }
+    int getParameterCount() const override { return 1; }
+    EffectParameter* getParameter(int index) override {
+        if (index == 0) return &params[0];
+        return nullptr;
+    }
+
+    void setParameter(const char* name, uint32_t value) override {
+        if (strcmp(params[0].name, name) == 0 && params[0].type == ParamType::COLOR) {
+            params[0].value.colorValue = value;
+        }
+    }
+};
 
 #endif // SOLIDCOLOR_H

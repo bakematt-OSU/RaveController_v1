@@ -13,12 +13,11 @@
 #include <ArduinoBLE.h>
 #include <LittleFS_Mbed_RP2040.h>
 #include <stdio.h>
-#include "Processes.h"
-
+#include "Processes.h" // Needed for createEffectByName
 
 // --- Filesystem Constants ---
 #define BT_NAME_FILE "/btname.txt"
-#define DEFAULT_BT_NAME "RP2040-LED"
+#define DEFAULT_BT_NAME "RP2040-CAPE-LED"
 
 // --- Externally defined globals (from main.cpp) ---
 extern volatile int16_t sampleBuffer[];
@@ -89,9 +88,23 @@ inline void initLEDs()
       ; // Halt
   }
   strip.begin();
+
+  // Get the main segment (index 0)
   seg = strip.getSegments()[0];
-  seg->begin();
-  seg->startEffect(PixelStrip::Segment::SegmentEffect::NONE);
+
+  // **FIXED**: Set a default effect using the new system
+  if (seg->activeEffect)
+  {
+    delete seg->activeEffect; // Clean up if an effect somehow already exists
+  }
+  seg->activeEffect = createEffectByName("SolidColor", seg); // Start with a solid color
+
+  // Set the default color for the SolidColor effect
+  if (seg->activeEffect)
+  {
+    seg->activeEffect->setParameter("color", (uint32_t)0x000000); // Start with black (off)
+  }
+
   strip.show(); // Clear the strip on startup
 }
 
@@ -106,7 +119,7 @@ inline void initFS()
   {
     // ADD THIS LINE to load the configuration
     loadConfig();
-  } 
+  }
 }
 
 inline String loadBTName()

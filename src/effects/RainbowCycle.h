@@ -2,43 +2,65 @@
 #define RAINBOWCYCLE_H
 
 #include "../PixelStrip.h"
+#include "EffectParameter.h"
+#include "BaseEffect.h"
+#include <Arduino.h>
 
-namespace RainbowCycle {
-    // Initialize the rainbow cycle effect
-    inline void start(PixelStrip::Segment* seg, uint32_t c1, uint32_t /*c2*/) {
-        seg->setEffect(PixelStrip::Segment::SegmentEffect::RainbowCycle);
-        seg->active = true;
-        // Use passed interval if reasonable, otherwise default to 20ms
-        seg->interval = (c1 > 0 && c1 <= 1000) ? (uint16_t)c1 : 20;
-        seg->lastUpdate = millis();
-        seg->rainbowFirstPixelHue = 0;
+class RainbowCycleEffect : public BaseEffect {
+private:
+    PixelStrip::Segment* segment;
+    EffectParameter params[1];
+
+    unsigned long rainbowFirstPixelHue;
+    unsigned long lastUpdate;
+
+public:
+    RainbowCycleEffect(PixelStrip::Segment* seg) : segment(seg) {
+        params[0].name = "speed";
+        params[0].type = ParamType::INTEGER;
+        params[0].value.intValue = 20;
+        params[0].min_val = 5;
+        params[0].max_val = 100;
+        rainbowFirstPixelHue = 0;
+        lastUpdate = millis();
     }
 
-    // Update one frame of the rainbow cycle
-    inline void update(PixelStrip::Segment* seg) {
-        if (!seg->active || (millis() - seg->lastUpdate < seg->interval)) return;
-        seg->lastUpdate = millis();
+    void update() override {
+        int interval = params[0].value.intValue;
+        if (millis() - lastUpdate < interval) return;
+        lastUpdate = millis();
 
-        uint16_t start = seg->startIndex();
-        uint16_t end   = seg->endIndex();
+        uint16_t start = segment->startIndex();
+        uint16_t end   = segment->endIndex();
         uint16_t length = end - start + 1;
 
-        // Map each pixel in the segment to a hue along the cycle
         for (uint16_t i = start; i <= end; ++i) {
             uint16_t offset = i - start;
-            uint16_t hue = seg->rainbowFirstPixelHue + (uint32_t(offset) * 65536UL / length);
-            // Generate raw HSV color, then scale by brightness
-            uint32_t raw = seg->getParent().ColorHSV(hue);
-            uint32_t scaled = PixelStrip::scaleColor(raw, seg->getBrightness());
-            seg->getParent().setPixel(i, scaled);
+            uint16_t hue = rainbowFirstPixelHue + (uint32_t(offset) * 65536UL / length);
+
+            uint32_t raw = segment->getParent().ColorHSV(hue);
+            uint32_t scaled = PixelStrip::scaleColor(raw, segment->getBrightness());
+            segment->getParent().setPixel(i, scaled);
         }
 
-        // Advance the hue for the next frame
-        seg->rainbowFirstPixelHue += 256;
-        if (seg->rainbowFirstPixelHue >= 5 * 65536UL) {
-            seg->rainbowFirstPixelHue = 0;
+        rainbowFirstPixelHue += 256;
+        if (rainbowFirstPixelHue >= 5 * 65536UL) {
+            rainbowFirstPixelHue = 0;
         }
     }
-}
+
+    const char* getName() const override { return "RainbowCycle"; }
+    int getParameterCount() const override { return 1; }
+    EffectParameter* getParameter(int index) override {
+        if (index == 0) return &params[0];
+        return nullptr;
+    }
+
+    void setParameter(const char* name, int value) override {
+        if (strcmp(params[0].name, name) == 0 && params[0].type == ParamType::INTEGER) {
+            params[0].value.intValue = value;
+        }
+    }
+};
 
 #endif // RAINBOWCYCLE_H
