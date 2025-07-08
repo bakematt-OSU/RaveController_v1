@@ -53,10 +53,20 @@ uint32_t PixelStrip::Color(uint8_t r, uint8_t g, uint8_t b)
     return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
 }
 
+// void PixelStrip::setPixel(uint16_t i, uint32_t col)
+// {
+//     RgbColor color((col >> 16) & 0xFF, (col >> 8) & 0xFF, col & 0xFF);
+//     color.Dim(activeBrightness_);
+//     strip.SetPixelColor(i, color);
+// }
+
 void PixelStrip::setPixel(uint16_t i, uint32_t col)
 {
     RgbColor color((col >> 16) & 0xFF, (col >> 8) & 0xFF, col & 0xFF);
-    color.Dim(activeBrightness_);
+    
+    // --- FIX #1: Remove this line ---
+    // color.Dim(activeBrightness_); 
+    
     strip.SetPixelColor(i, color);
 }
 
@@ -144,7 +154,7 @@ void PixelStrip::Segment::startEffect(SegmentEffect effect, uint32_t color1, uin
 
 void PixelStrip::Segment::update()
 {
-    parent.setActiveBrightness(brightness);
+    // parent.setActiveBrightness(brightness);
 
     switch (activeEffect)
     {
