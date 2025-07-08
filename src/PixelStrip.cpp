@@ -5,7 +5,7 @@
 //================================================================================
 
 PixelStrip::PixelStrip(uint8_t pin, uint16_t ledCount, uint8_t brightness, uint8_t numSections)
-    : strip(ledCount, pin)
+    : strip(ledCount, pin), ledCount_(ledCount) // Initialize ledCount_
 {
     segments_.push_back(new Segment(*this, 0, ledCount - 1, "all", 0));
     segments_[0]->setBrightness(brightness);
@@ -20,6 +20,10 @@ PixelStrip::PixelStrip(uint8_t pin, uint16_t ledCount, uint8_t brightness, uint8
             addSection(start, end, "seg" + String(s + 1));
         }
     }
+}
+uint16_t PixelStrip::getLedCount() const
+{
+    return ledCount_;
 }
 
 void PixelStrip::addSection(uint16_t start, uint16_t end, const String &name)

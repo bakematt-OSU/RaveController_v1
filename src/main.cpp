@@ -5,6 +5,7 @@
 #include <PDM.h>
 #include "Init.h"
 #include "Processes.h"
+#include <LittleFS_Mbed_RP2040.h> // Include LittleFS header
 
 //================================================================
 // GLOBAL VARIABLE DEFINITIONS
@@ -16,7 +17,9 @@ uint8_t activeG = 0;
 uint8_t activeB = 255;
 
 // --- Hardware & Library Objects ---
-PixelStrip strip(LED_PIN, LED_COUNT, BRIGHTNESS, SEGMENT_COUNT);
+LittleFS_MBED myFS; // Define the filesystem object globally
+uint16_t LED_COUNT = 45; // Default value
+PixelStrip* strip = nullptr; // Changed to a pointer
 PixelStrip::Segment *seg; // Pointer to the currently active segment
 AudioTrigger<SAMPLES> audioTrigger;
 
@@ -46,19 +49,6 @@ void setup()
     initLEDs();
     initBLE(); // Must be last to advertise correctly configured services
 
-    // Serial.println("→ Blink test start");
-    // WiFiDrv::pinMode(LEDR_PIN, OUTPUT);
-    // WiFiDrv::pinMode(LEDG_PIN, OUTPUT);
-    // WiFiDrv::pinMode(LEDB_PIN, OUTPUT);
-    // for (int i = 0; i < 3; ++i) {
-    //     WiFiDrv::digitalWrite(LEDR_PIN, HIGH); delay(50);
-    //     WiFiDrv::digitalWrite(LEDR_PIN, LOW);  delay(50);
-    //     WiFiDrv::digitalWrite(LEDG_PIN, HIGH); delay(50);
-    //     WiFiDrv::digitalWrite(LEDG_PIN, LOW);  delay(50);
-    //     WiFiDrv::digitalWrite(LEDB_PIN, HIGH); delay(50);
-    //     WiFiDrv::digitalWrite(LEDB_PIN, LOW);  delay(50);
-    // }
-    // Serial.println("→ Blink test end");
     Serial.println("Setup complete. Entering main loop...");
 }
 
@@ -72,11 +62,13 @@ void loop()
     // updateDigHeartbeat();
 
     // Update all LED segments
-    for (auto *s : strip.getSegments())
-    {
-        s->update();
-    }
+    if (strip) {
+        for (auto *s : strip->getSegments())
+        {
+            s->update();
+        }
 
-    // Show the final result on the strip
-    strip.show();
+        // Show the final result on the strip
+        strip->show();
+    }
 }

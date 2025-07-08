@@ -10,6 +10,7 @@
 #include "effects/Effects.h"
 
 // --- Function Declarations ---
+void setLedCount(uint16_t newSize); // New function
 void handleBatchConfigJson(const String &json);
 void saveConfig();
 void loadConfig();

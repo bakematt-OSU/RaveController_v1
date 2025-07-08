@@ -12,6 +12,7 @@ class PixelStrip
 {
 public:
     class Segment; // Forward declaration
+    uint16_t getLedCount() const;
 
     PixelStrip(uint8_t pin, uint16_t ledCount, uint8_t brightness = 50, uint8_t numSections = 0);
     void begin();
@@ -71,6 +72,8 @@ public:
 private:
     PixelBus strip;
     std::vector<Segment *> segments_;
+    uint16_t ledCount_; // Store the count internally
+
 };
 
 #endif // PIXELSTRIP_H

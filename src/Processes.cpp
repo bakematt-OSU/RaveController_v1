@@ -16,7 +16,7 @@ extern float accelX, accelY, accelZ;
 extern volatile bool triggerRipple;
 extern unsigned long lastStepTime;
 extern bool debugAccel;
-extern PixelStrip strip;
+extern PixelStrip* strip;
 extern PixelStrip::Segment *seg;
 extern AudioTrigger<SAMPLES> audioTrigger;
 extern HeartbeatColor hbColor;
@@ -46,6 +46,8 @@ static constexpr uint8_t CMD_BATCH_CONFIG = 0x09;
 static constexpr uint8_t CMD_NUM_PIXELS = 0x0A;
 static constexpr uint8_t CMD_GET_EFFECT_INFO = 0x0B;
 static constexpr uint8_t CMD_ACK = 0xA0;
+static constexpr uint8_t CMD_SET_LED_COUNT = 0x0C;
+static constexpr uint8_t CMD_GET_LED_COUNT = 0x0D;
 
 const char *getBLECmdName(uint8_t cmd)
 {
@@ -73,10 +75,32 @@ const char *getBLECmdName(uint8_t cmd)
         return "CMD_NUM_PIXELS";
     case CMD_GET_EFFECT_INFO:
         return "CMD_GET_EFFECT_INFO";
+    case CMD_SET_LED_COUNT:
+        return "CMD_SET_LED_COUNT";
+    case CMD_GET_LED_COUNT:
+        return "CMD_GET_LED_COUNT"; 
     case CMD_ACK:
         return "CMD_ACK";
     default:
         return "UNKNOWN_CMD";
+    }
+}
+
+void setLedCount(uint16_t newSize)
+{
+    if (newSize > 0 && newSize <= 2000)
+    { // Add a reasonable limit
+        LED_COUNT = newSize;
+        saveConfig();
+        Serial.print("LED count set to ");
+        Serial.print(newSize);
+        Serial.println(". Restarting to apply changes.");
+        delay(1000);        // Give serial time to send
+        NVIC_SystemReset(); // Soft-reset the board
+    }
+    else
+    {
+        Serial.println("Invalid LED count.");
     }
 }
 
@@ -105,7 +129,7 @@ PixelStrip::Segment *findSegmentByIndex(const String &args, String &remainingArg
     }
     int idx = args.substring(0, d).toInt();
     remainingArgs = args.substring(d + 1);
-    auto &segments = strip.getSegments();
+    auto &segments = strip->getSegments(); // Use ->
     if (idx < 0 || (size_t)idx >= segments.size())
     {
         Serial.println("Invalid segment index");
@@ -124,10 +148,10 @@ void handleBatchConfigJson(const String &json)
         Serial.println(error.c_str());
         return;
     }
-    strip.clearUserSegments();
+    strip->clearUserSegments();
     if (doc.containsKey("segments"))
     {
-        PixelStrip::Segment *allSegment = strip.getSegments()[0];
+        PixelStrip::Segment *allSegment = strip->getSegments()[0];
         for (auto item : doc["segments"].as<JsonArray>())
         {
             String name = item["name"] | "";
@@ -147,8 +171,8 @@ void handleBatchConfigJson(const String &json)
             {
                 uint16_t start = item["startLed"];
                 uint16_t end = item["endLed"];
-                strip.addSection(start, end, name);
-                PixelStrip::Segment *newSeg = strip.getSegments().back();
+                strip->addSection(start, end, name);
+                PixelStrip::Segment *newSeg = strip->getSegments().back();
                 if (item.containsKey("brightness"))
                     newSeg->setBrightness(item["brightness"]);
                 if (item.containsKey("effect"))
@@ -159,7 +183,7 @@ void handleBatchConfigJson(const String &json)
             }
         }
     }
-    strip.show();
+    strip->show();
     Serial.println("Batch configuration applied");
 }
 
@@ -243,7 +267,7 @@ void handleCommandLine(const String &line)
             int segIdx = data["segment_id"];
             String effectName = data["effect"];
             String paramName = data["name"];
-            auto &segments = strip.getSegments();
+            auto &segments = strip->getSegments();
             if (segIdx >= 0 && (size_t)segIdx < segments.size())
             {
                 BaseEffect *effect = segments[segIdx]->activeEffect;
@@ -278,7 +302,7 @@ void handleCommandLine(const String &line)
     String args = sp > 0 ? cmdLine.substring(sp + 1) : String();
     cmd.toLowerCase();
 
-    auto &segments = strip.getSegments();
+    auto &segments = strip->getSegments();
 
     if (cmd.equalsIgnoreCase("listeffects"))
     {
@@ -379,7 +403,7 @@ void handleCommandLine(const String &line)
     {
         StaticJsonDocument<1024> statusDoc;
         JsonArray segs = statusDoc.createNestedArray("segments");
-        for (auto *s : strip.getSegments())
+        for (auto *s : strip->getSegments())
         {
             JsonObject obj = segs.createNestedObject();
             obj["id"] = s->getId();
@@ -437,15 +461,15 @@ void handleCommandLine(const String &line)
     }
     else if (cmd == "clearsegments")
     {
-        strip.clearUserSegments();
-        seg = strip.getSegments()[0];
+        strip->clearUserSegments();
+        seg = strip->getSegments()[0];
         if (seg->activeEffect)
         {
             delete seg->activeEffect;
         }
         seg->activeEffect = createEffectByName("SolidColor", seg);
         seg->update();
-        strip.show();
+        strip->show();
         Serial.println("Segments cleared; active = 0");
     }
     else if (cmd == "addsegment")
@@ -461,7 +485,7 @@ void handleCommandLine(const String &line)
                 Serial.println("Error: end<start");
             else
             {
-                strip.addSection(start, end, "seg" + String(segments.size()));
+                strip->addSection(start, end, "seg" + String(segments.size()));
                 Serial.print("Added segment ");
                 Serial.print(segments.size() - 1);
                 Serial.print(" [");
@@ -471,6 +495,23 @@ void handleCommandLine(const String &line)
                 Serial.println("]");
             }
         }
+    }
+    else if (cmd == "setledcount")
+    {
+        int count = args.toInt();
+        if (count > 0)
+        {
+            setLedCount(count);
+        }
+        else
+        {
+            Serial.println("Usage: setledcount <number>");
+        }
+    }
+    else if (cmd.equalsIgnoreCase("getledcount"))
+    {
+        Serial.print("LED_COUNT: ");
+        Serial.println(strip ? strip->getLedCount() : 0);
     }
     else
     {
@@ -518,6 +559,23 @@ void handleBinarySerial(const uint8_t *data, size_t len)
         {
         case CMD_GET_STATUS:
             handleCommandLine("getstatus");
+            break;
+        case CMD_GET_LED_COUNT:
+            if (strip)
+            {
+                uint16_t count = strip->getLedCount();
+                uint8_t response[3] = {CMD_ACK, (uint8_t)(count >> 8), (uint8_t)(count & 0xFF)};
+                cmdCharacteristic.writeValue(response, sizeof(response));
+                Serial.print("Sent LED count via BLE: ");
+                Serial.println(count);
+            }
+            break;
+        case CMD_SET_LED_COUNT:
+            if (len >= 3)
+            {
+                uint16_t newCount = (data[1] << 8) | data[2];
+                setLedCount(newCount);
+            }
             break;
         default:
             break;
@@ -591,8 +649,9 @@ void processAccel()
 void saveConfig()
 {
     StaticJsonDocument<1024> doc;
+    doc["led_count"] = LED_COUNT; // Save the new value
     JsonArray segments = doc.createNestedArray("segments");
-    for (auto *s : strip.getSegments())
+    for (auto *s : strip->getSegments())
     {
         JsonObject segmentObject = segments.createNestedObject();
         segmentObject["name"] = s->getName();
@@ -625,6 +684,14 @@ void loadConfig()
         fread(buf, 1, sizeof(buf), file);
         fclose(file);
         String json(buf);
+
+        StaticJsonDocument<1024> doc;
+        DeserializationError error = deserializeJson(doc, json);
+        if (!error)
+        {
+            LED_COUNT = doc["led_count"] | 45; // Load the value, with a default
+        }
+
         handleBatchConfigJson(json);
         Serial.println("Configuration loaded.");
     }

@@ -12,7 +12,8 @@ constexpr uint8_t LEDB_PIN = 27;
 constexpr uint8_t LED_PIN  = 4;
 
 // —— LED Strip Configuration ——
-constexpr uint16_t LED_COUNT     = 585;
+// constexpr uint16_t LED_COUNT     = 585; // This is now a variable
+extern uint16_t LED_COUNT;               // Declare it as an external variable
 constexpr uint8_t  BRIGHTNESS    = 10;
 constexpr uint8_t  SEGMENT_COUNT = 0;
 
@@ -47,10 +48,10 @@ extern HeartbeatColorState heartbeatColorState;
 extern unsigned long lastHeartbeatColorChange;
 
 
-// call this once in setup(), before loadConfig()
-inline void initStateFS() {
-  static LittleFS_MBED myFS;
-  if (!myFS.init()) {
-    Serial.println("⚠️ LittleFS mount failed");
-  }
-}
+// // call this once in setup(), before loadConfig()
+// inline void initStateFS() {
+//   static LittleFS_MBED myFS;
+//   if (!myFS.init()) {
+//     Serial.println("⚠️ LittleFS mount failed");
+//   }
+// }

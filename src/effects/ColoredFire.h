@@ -49,23 +49,18 @@ public:
         params[2].name = "color1";
         params[2].type = ParamType::COLOR;
         params[2].value.colorValue = 0x000000;
-        params[2].min_val = 0;
-        params[2].max_val = 0;
 
         params[3].name = "color2";
         params[3].type = ParamType::COLOR;
         params[3].value.colorValue = 0xFF0000;
-        params[3].min_val = 0;
-        params[3].max_val = 0;
 
         params[4].name = "color3";
         params[4].type = ParamType::COLOR;
         params[4].value.colorValue = 0xFFFF00;
-        params[4].min_val = 0;
-        params[4].max_val = 0;
         
+        // This check prevents a crash if the effect is created
+        // without being assigned to a segment first.
         if (segment != nullptr) {
-            // CORRECTED: Called the correct function 'PixelCount()'
             heatSize = segment->getParent().getStrip().PixelCount();
             heat = new byte[heatSize];
             memset(heat, 0, heatSize);
@@ -138,6 +133,6 @@ public:
             }
         }
     }
-}; // <-- CORRECTED: Added missing closing brace
+};
 
 #endif // COLOREDFIRE_H

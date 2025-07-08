@@ -22,9 +22,10 @@
 // --- Externally defined globals (from main.cpp) ---
 extern volatile int16_t sampleBuffer[];
 extern volatile int samplesRead;
-extern PixelStrip strip;
+extern PixelStrip* strip;
 extern AudioTrigger<SAMPLES> audioTrigger;
 extern PixelStrip::Segment *seg;
+extern LittleFS_MBED myFS; // Declare the global FS object
 
 // --- BLE Service and Characteristic Definitions ---
 // These UUIDs MUST match the ones in your Android app's BluetoothService.kt
@@ -64,7 +65,7 @@ inline void onPDMdata()
 
 inline void ledFlashCallback(bool active, uint8_t brightness)
 {
-  strip.propagateTriggerState(active, brightness);
+  strip->propagateTriggerState(active, brightness);
 }
 
 inline void initAudio()
@@ -79,6 +80,35 @@ inline void initAudio()
   }
 }
 
+// inline void initLEDs()
+// {
+//   if (WiFi.status() == WL_NO_MODULE)
+//   {
+//     Serial.println("WiFi module failed!");
+//     while (true)
+//       ; // Halt
+//   }
+//   strip.begin();
+
+//   // Get the main segment (index 0)
+//   seg = strip.getSegments()[0];
+
+//   // **FIXED**: Set a default effect using the new system
+//   if (seg->activeEffect)
+//   {
+//     delete seg->activeEffect; // Clean up if an effect somehow already exists
+//   }
+//   seg->activeEffect = createEffectByName("SolidColor", seg); // Start with a solid color
+
+//   // Set the default color for the SolidColor effect
+//   if (seg->activeEffect)
+//   {
+//     seg->activeEffect->setParameter("color", (uint32_t)0x000000); // Start with black (off)
+//   }
+
+//   strip.show(); // Clear the strip on startup
+// }
+
 inline void initLEDs()
 {
   if (WiFi.status() == WL_NO_MODULE)
@@ -87,10 +117,14 @@ inline void initLEDs()
     while (true)
       ; // Halt
   }
-  strip.begin();
+
+  // Dynamically allocate the strip with the (potentially loaded) LED_COUNT
+  strip = new PixelStrip(LED_PIN, LED_COUNT, BRIGHTNESS, SEGMENT_COUNT);
+
+  strip->begin();
 
   // Get the main segment (index 0)
-  seg = strip.getSegments()[0];
+  seg = strip->getSegments()[0];
 
   // **FIXED**: Set a default effect using the new system
   if (seg->activeEffect)
@@ -105,22 +139,9 @@ inline void initLEDs()
     seg->activeEffect->setParameter("color", (uint32_t)0x000000); // Start with black (off)
   }
 
-  strip.show(); // Clear the strip on startup
+  strip->show(); // Clear the strip on startup
 }
 
-inline void initFS()
-{
-  static LittleFS_MBED myFS;
-  if (!myFS.init())
-  {
-    Serial.println("⚠️ LittleFS mount failed");
-  }
-  else
-  {
-    // ADD THIS LINE to load the configuration
-    loadConfig();
-  }
-}
 
 inline String loadBTName()
 {
@@ -160,4 +181,18 @@ inline void initBLE()
   Serial.print("BLE Ready as “");
   Serial.print(btName);
   Serial.println("”");
+}
+
+inline void initFS()
+{
+  // static LittleFS_MBED myFS; // Remove the local static object
+  if (!myFS.init())
+  {
+    Serial.println("⚠️ LittleFS mount failed");
+  }
+  else
+  {
+    // ADD THIS LINE to load the configuration
+    loadConfig();
+  }
 }
