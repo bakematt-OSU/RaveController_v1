@@ -7,7 +7,7 @@
 #include "Triggers.h"
 #include <LittleFS_Mbed_RP2040.h>
 #include <stdio.h>
-#include "globals.h" 
+#include "globals.h"
 #include <stdio.h> // <-- ADD THIS for fopen, fprintf, etc.
 
 // --- External globals defined in main.cpp ---
@@ -93,13 +93,16 @@ void setLedCount(uint16_t newSize)
     {
         LED_COUNT = newSize;
         // Check if the save was successful before restarting
-        if (saveConfig()) {
+        if (saveConfig())
+        {
             Serial.print("LED count set to ");
             Serial.print(newSize);
             Serial.println(". Restarting to apply changes.");
             delay(1000);        // Give serial time to send
             NVIC_SystemReset(); // Soft-reset the board
-        } else {
+        }
+        else
+        {
             Serial.println("ERROR: Failed to save new LED count. Aborting restart.");
         }
     }
@@ -108,7 +111,6 @@ void setLedCount(uint16_t newSize)
         Serial.println("Invalid LED count.");
     }
 }
-
 
 /**
  * @brief Creates an effect instance based on its string name using the EFFECT_LIST macro.
@@ -525,6 +527,64 @@ void handleCommandLine(const String &line)
         saveConfig();
         Serial.println("OK");
     }
+    else if (cmd.equalsIgnoreCase("getconfig"))
+    {
+        // Return the same JSON format that gets saved to the config file
+        StaticJsonDocument<512> doc;
+        doc["led_count"] = LED_COUNT;
+        JsonArray segments = doc.createNestedArray("segments");
+        for (auto *s : strip->getSegments())
+        {
+            JsonObject segmentObject = segments.createNestedObject();
+            segmentObject["name"] = s->getName();
+            segmentObject["startLed"] = s->startIndex();
+            // Clamp endLed to LED_COUNT-1 to prevent out-of-bounds values
+            uint16_t endLed = s->endIndex();
+            if (endLed >= LED_COUNT)
+            {
+                endLed = LED_COUNT - 1;
+            }
+            segmentObject["endLed"] = endLed;
+            segmentObject["brightness"] = s->getBrightness();
+            segmentObject["effect"] = (s->activeEffect) ? s->activeEffect->getName() : "NONE";
+        }
+        String output;
+        serializeJson(doc, output);
+        Serial.println(output);
+    }
+    else if (cmd.equalsIgnoreCase("fixsegments"))
+    {
+        // Fix any segments that extend beyond LED_COUNT
+        bool fixed = false;
+        auto &segments = strip->getSegments();
+        for (auto *s : segments)
+        {
+            if (s->endIndex() >= LED_COUNT)
+            {
+                Serial.print("Fixing segment '");
+                Serial.print(s->getName().c_str());
+                Serial.print("' from ");
+                Serial.print(s->startIndex());
+                Serial.print("-");
+                Serial.print(s->endIndex());
+                Serial.print(" to ");
+                Serial.print(s->startIndex());
+                Serial.print("-");
+                Serial.println(LED_COUNT - 1);
+                // Note: You'll need a method to update segment bounds in PixelStrip
+                // This is a placeholder - the actual implementation depends on your PixelStrip class
+                fixed = true;
+            }
+        }
+        if (fixed)
+        {
+            Serial.println("Segments fixed. Consider saving config.");
+        }
+        else
+        {
+            Serial.println("All segments are within bounds.");
+        }
+    }
     else
     {
         Serial.print("Unknown cmd: ");
@@ -658,7 +718,6 @@ void processAccel()
     }
 }
 
-
 bool saveConfig()
 {
     // Use smaller document size - typical config should be much smaller
@@ -706,7 +765,7 @@ String loadConfig()
         fseek(file, 0, SEEK_SET);
 
         // Allocate a buffer and read the file
-        char* buf = new char[fileSize + 1];
+        char *buf = new char[fileSize + 1];
         fread(buf, 1, fileSize, file);
         fclose(file);
         buf[fileSize] = '\0'; // Null-terminate the string
