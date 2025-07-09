@@ -1,13 +1,14 @@
 #include "Processes.h"
 #include <Arduino_LSM6DSOX.h>
-#include <WiFiNINA.h>
+// #include <WiFiNINA.h>
 #include <ArduinoBLE.h>
 #include <math.h>
 #include <PDM.h>
 #include "Triggers.h"
 #include <LittleFS_Mbed_RP2040.h>
 #include <stdio.h>
-// #include "effects/Effects.h" // The critical include for the EFFECT_LIST macro
+#include "globals.h" 
+#include <stdio.h> // <-- ADD THIS for fopen, fprintf, etc.
 
 // --- External globals defined in main.cpp ---
 extern volatile int16_t sampleBuffer[];
@@ -16,7 +17,7 @@ extern float accelX, accelY, accelZ;
 extern volatile bool triggerRipple;
 extern unsigned long lastStepTime;
 extern bool debugAccel;
-extern PixelStrip* strip;
+extern PixelStrip *strip;
 extern PixelStrip::Segment *seg;
 extern AudioTrigger<SAMPLES> audioTrigger;
 extern HeartbeatColor hbColor;
@@ -29,9 +30,9 @@ extern BLECharacteristic cmdCharacteristic;
 static BLEDevice connectedCentral;
 static String jsonBuffer = "";
 static bool isReceivingBatch = false;
-static bool isSendingMultiPart = false;
+// static bool isSendingMultiPart = false; // Unused variable removed
 static const unsigned long HEARTBEAT_INTERVAL = 1000;
-static unsigned long lastHeartbeatTime = 0;
+// static unsigned long lastHeartbeatTime = 0; // Unused variable removed
 
 // --- Binary command IDs for BLE/Android control ---
 static constexpr uint8_t CMD_SET_COLOR = 0x01;
@@ -78,7 +79,7 @@ const char *getBLECmdName(uint8_t cmd)
     case CMD_SET_LED_COUNT:
         return "CMD_SET_LED_COUNT";
     case CMD_GET_LED_COUNT:
-        return "CMD_GET_LED_COUNT"; 
+        return "CMD_GET_LED_COUNT";
     case CMD_ACK:
         return "CMD_ACK";
     default:
@@ -89,20 +90,25 @@ const char *getBLECmdName(uint8_t cmd)
 void setLedCount(uint16_t newSize)
 {
     if (newSize > 0 && newSize <= 2000)
-    { // Add a reasonable limit
+    {
         LED_COUNT = newSize;
-        saveConfig();
-        Serial.print("LED count set to ");
-        Serial.print(newSize);
-        Serial.println(". Restarting to apply changes.");
-        delay(1000);        // Give serial time to send
-        NVIC_SystemReset(); // Soft-reset the board
+        // Check if the save was successful before restarting
+        if (saveConfig()) {
+            Serial.print("LED count set to ");
+            Serial.print(newSize);
+            Serial.println(". Restarting to apply changes.");
+            delay(1000);        // Give serial time to send
+            NVIC_SystemReset(); // Soft-reset the board
+        } else {
+            Serial.println("ERROR: Failed to save new LED count. Aborting restart.");
+        }
     }
     else
     {
         Serial.println("Invalid LED count.");
     }
 }
+
 
 /**
  * @brief Creates an effect instance based on its string name using the EFFECT_LIST macro.
@@ -513,6 +519,12 @@ void handleCommandLine(const String &line)
         Serial.print("LED_COUNT: ");
         Serial.println(strip ? strip->getLedCount() : 0);
     }
+    // ADD THIS BLOCK
+    else if (cmd.equalsIgnoreCase("saveconfig"))
+    {
+        saveConfig();
+        Serial.println("OK");
+    }
     else
     {
         Serial.print("Unknown cmd: ");
@@ -646,10 +658,12 @@ void processAccel()
     }
 }
 
-void saveConfig()
+
+bool saveConfig()
 {
-    StaticJsonDocument<1024> doc;
-    doc["led_count"] = LED_COUNT; // Save the new value
+    // Use smaller document size - typical config should be much smaller
+    StaticJsonDocument<512> doc;
+    doc["led_count"] = LED_COUNT;
     JsonArray segments = doc.createNestedArray("segments");
     for (auto *s : strip->getSegments())
     {
@@ -660,43 +674,52 @@ void saveConfig()
         segmentObject["brightness"] = s->getBrightness();
         segmentObject["effect"] = (s->activeEffect) ? s->activeEffect->getName() : "NONE";
     }
+
+    // Use the now-proven C-style file I/O
     FILE *file = fopen(STATE_FILE, "w");
     if (file)
     {
         String output;
         serializeJson(doc, output);
-        fputs(output.c_str(), file);
+        // Use fprintf to write the string to the file
+        fprintf(file, "%s", output.c_str());
         fclose(file);
         Serial.println("Configuration saved.");
+        return true;
     }
     else
     {
         Serial.println("Failed to open state file for writing.");
+        return false;
     }
 }
 
-void loadConfig()
+String loadConfig()
 {
+    // Use the now-proven C-style file I/O
     FILE *file = fopen(STATE_FILE, "r");
     if (file)
     {
-        char buf[1024];
-        fread(buf, 1, sizeof(buf), file);
+        // Get the size of the file
+        fseek(file, 0, SEEK_END);
+        long fileSize = ftell(file);
+        fseek(file, 0, SEEK_SET);
+
+        // Allocate a buffer and read the file
+        char* buf = new char[fileSize + 1];
+        fread(buf, 1, fileSize, file);
         fclose(file);
+        buf[fileSize] = '\0'; // Null-terminate the string
+
         String json(buf);
+        delete[] buf; // Free the allocated memory
 
-        StaticJsonDocument<1024> doc;
-        DeserializationError error = deserializeJson(doc, json);
-        if (!error)
-        {
-            LED_COUNT = doc["led_count"] | 45; // Load the value, with a default
-        }
-
-        handleBatchConfigJson(json);
-        Serial.println("Configuration loaded.");
+        Serial.println("Configuration file loaded from FS.");
+        return json;
     }
     else
     {
         Serial.println("Could not find state file, using default configuration.");
+        return "";
     }
 }

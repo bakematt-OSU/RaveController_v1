@@ -7,7 +7,7 @@
 #include <Arduino.h>
 #include <PDM.h>
 #include <Arduino_LSM6DSOX.h>
-#include <WiFiNINA.h>
+// #include <WiFiNINA.h>
 #include "PixelStrip.h"
 #include "Triggers.h"
 #include <ArduinoBLE.h>
@@ -22,7 +22,7 @@
 // --- Externally defined globals (from main.cpp) ---
 extern volatile int16_t sampleBuffer[];
 extern volatile int samplesRead;
-extern PixelStrip* strip;
+extern PixelStrip *strip;
 extern AudioTrigger<SAMPLES> audioTrigger;
 extern PixelStrip::Segment *seg;
 extern LittleFS_MBED myFS; // Declare the global FS object
@@ -111,12 +111,12 @@ inline void initAudio()
 
 inline void initLEDs()
 {
-  if (WiFi.status() == WL_NO_MODULE)
-  {
-    Serial.println("WiFi module failed!");
-    while (true)
-      ; // Halt
-  }
+  // if (WiFi.status() == WL_NO_MODULE)
+  // {
+  //   Serial.println("WiFi module failed!");
+  //   while (true)
+  //     ; // Halt
+  // }
 
   // Dynamically allocate the strip with the (potentially loaded) LED_COUNT
   strip = new PixelStrip(LED_PIN, LED_COUNT, BRIGHTNESS, SEGMENT_COUNT);
@@ -141,7 +141,6 @@ inline void initLEDs()
 
   strip->show(); // Clear the strip on startup
 }
-
 
 inline String loadBTName()
 {
@@ -185,14 +184,14 @@ inline void initBLE()
 
 inline void initFS()
 {
-  // static LittleFS_MBED myFS; // Remove the local static object
+  // Initialize the global LittleFS object and keep it mounted
   if (!myFS.init())
   {
-    Serial.println("⚠️ LittleFS mount failed");
+    Serial.println("⚠️ LittleFS mount failed on startup");
   }
   else
   {
-    // ADD THIS LINE to load the configuration
-    loadConfig();
+    Serial.println("LittleFS mounted successfully");
+    loadConfig(); // Call loadConfig, which will use the mounted FS
   }
 }

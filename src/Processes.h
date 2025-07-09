@@ -12,8 +12,8 @@
 // --- Function Declarations ---
 void setLedCount(uint16_t newSize); // New function
 void handleBatchConfigJson(const String &json);
-void saveConfig();
-void loadConfig();
+bool saveConfig();
+String  loadConfig();
 void handleBinarySerial(const uint8_t *data, size_t len);
 void handleCommandLine(const String &line);
 BaseEffect* createEffectByName(const String& name, PixelStrip::Segment *seg);

@@ -31,7 +31,7 @@ constexpr unsigned long HB_INTERVAL_MS = 2000;
 
 
 // where we store the overall state
-static constexpr char STATE_FILE[] = "/state.json";
+static constexpr char STATE_FILE[] = "/littlefs/state.json";
 
 
 /// --- Heartbeat Effect State Variables ---
@@ -46,12 +46,3 @@ enum HeartbeatColorState
 // Declare the variables here, but don't define them
 extern HeartbeatColorState heartbeatColorState;
 extern unsigned long lastHeartbeatColorChange;
-
-
-// // call this once in setup(), before loadConfig()
-// inline void initStateFS() {
-//   static LittleFS_MBED myFS;
-//   if (!myFS.init()) {
-//     Serial.println("⚠️ LittleFS mount failed");
-//   }
-// }
