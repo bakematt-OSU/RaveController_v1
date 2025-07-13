@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include "globals.h"
 #include <stdio.h> // <-- ADD THIS for fopen, fprintf, etc.
+#include "EffectLookup.h"
 
 // --- External globals defined in main.cpp ---
 extern volatile int16_t sampleBuffer[];
@@ -124,6 +125,14 @@ BaseEffect *createEffectByName(const String &name, PixelStrip::Segment *seg)
     }
     EFFECT_LIST(CREATE_EFFECT_IF_MATCH)
 #undef CREATE_EFFECT_IF_MATCH
+    return nullptr;
+}
+
+// Helper to get effect name from enum value
+const char* getEffectNameFromId(uint8_t id) {
+    if (id < EFFECT_COUNT) {
+        return EFFECT_NAMES[id];
+    }
     return nullptr;
 }
 
@@ -627,10 +636,76 @@ void handleBinarySerial(const uint8_t *data, size_t len)
     }
     else
     {
+        auto &segments = strip->getSegments();
         switch (cmdId)
         {
+        case CMD_SET_COLOR:
+            if (len >= 4 && seg) {
+                seg->setColor(data[1], data[2], data[3]);
+            }
+            break;
+        case CMD_SET_EFFECT:
+            if (len >= 3) {
+                uint8_t segIdx = data[1];
+                uint8_t effectId = data[2];
+                if (segIdx < segments.size()) {
+                    const char* effectName = getEffectNameFromId(effectId);
+                    if (effectName) {
+                        if (segments[segIdx]->activeEffect) delete segments[segIdx]->activeEffect;
+                        segments[segIdx]->activeEffect = createEffectByName(effectName, segments[segIdx]);
+                    }
+                }
+            }
+            break;
+        case CMD_SET_BRIGHTNESS:
+            if (len >= 2 && !segments.empty()) {
+                segments[0]->setBrightness(data[1]);
+            }
+            break;
+        case CMD_SET_SEG_BRIGHT:
+            if (len >= 3) {
+                uint8_t segIdx = data[1];
+                if (segIdx < segments.size()) {
+                    segments[segIdx]->setBrightness(data[2]);
+                }
+            }
+            break;
+        case CMD_SELECT_SEGMENT:
+            if (len >= 2) {
+                uint8_t segIdx = data[1];
+                if (segIdx < segments.size()) {
+                    seg = segments[segIdx];
+                }
+            }
+            break;
+        case CMD_CLEAR_SEGMENTS:
+            strip->clearUserSegments();
+            seg = strip->getSegments()[0];
+            if (seg->activeEffect) {
+                delete seg->activeEffect;
+            }
+            seg->activeEffect = createEffectByName("SolidColor", seg);
+            seg->update();
+            strip->show();
+            break;
+        case CMD_SET_SEG_RANGE:
+            if (len >= 5) {
+                uint8_t segIdx = data[1];
+                uint16_t start = (data[2] << 8) | data[3];
+                uint16_t end = (data[4] << 8) | data[5];
+                if (segIdx < segments.size()) {
+                    segments[segIdx]->setRange(start, end);
+                }
+            }
+            break;
         case CMD_GET_STATUS:
             handleCommandLine("getstatus");
+            break;
+        case CMD_GET_EFFECT_INFO:
+            if (len >= 2) {
+                String cmd = "geteffectinfo " + String(data[1]);
+                handleCommandLine(cmd);
+            }
             break;
         case CMD_GET_LED_COUNT:
             if (strip)

@@ -30,22 +30,17 @@ inline EffectType effectFromString(const String &str) {
 inline void applyEffectToSegment(PixelStrip::Segment *seg, EffectType effect) {
     if (!seg) return; // Safety check
 
-    // **THIS IS THE CRITICAL FIX**
-    // This line updates the segment's official state so that 'getstatus' reports it correctly.
-    seg->activeEffect = (PixelStrip::Segment::SegmentEffect)((int)effect + 1);
+    // Delete the old effect to prevent memory leaks
+    if (seg->activeEffect) {
+        delete seg->activeEffect;
+        seg->activeEffect = nullptr;
+    }
 
-    // stop any running effect
-    seg->startEffect(PixelStrip::Segment::SegmentEffect::NONE);
-
-    // pack RGB into 0xRRGGBB
-// Use the segment's own stored color
-uint32_t color1 = seg->baseColor;
-uint32_t color2 = color1;  // default second color = same
-
+    // Create a new instance of the chosen effect
     switch (effect) {
         #define EFFECT_CASE(name, ns)         \
             case EffectType::name:            \
-                ns::start(seg, color1, color2); \
+                seg->activeEffect = new ns(seg); \
                 break;
         EFFECT_LIST(EFFECT_CASE)
         #undef EFFECT_CASE
@@ -55,6 +50,7 @@ uint32_t color2 = color1;  // default second color = same
             break;
     }
 }
+
 
 // ── Parallel array of effect names for UI or serialization ──
 #define STRING_ENTRY(name, ns) #name,
