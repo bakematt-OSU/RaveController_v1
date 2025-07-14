@@ -3,12 +3,9 @@
 #include <Arduino.h>
 #include "effects/Effects.h"
 #include "PixelStrip.h"
-#include "AllEffects.h"   // ← pulls in each effect’s .h (with its ns::start())
-// #include "config.h"       // for activeR, activeG, activeB globals
+#include "AllEffects.h"
 
-extern uint8_t activeR, activeG, activeB;
-
-// ── Build the EffectType enum from EFFECT_LIST ──
+// --- Build the EffectType enum from EFFECT_LIST ---
 #define ENUM_ENTRY(name, ns) name,
 enum class EffectType {
     EFFECT_LIST(ENUM_ENTRY)
@@ -16,43 +13,7 @@ enum class EffectType {
 };
 #undef ENUM_ENTRY
 
-// ── Map a (case‐insensitive) String to EffectType ──
-inline EffectType effectFromString(const String &str) {
-    #define CASE_ENTRY(name, ns)       \
-        if (str.equalsIgnoreCase(#name)) \
-            return EffectType::name;
-    EFFECT_LIST(CASE_ENTRY)
-    #undef CASE_ENTRY
-    return EffectType::UNKNOWN;
-}
-
-// ── Apply the chosen effect to a segment ──
-inline void applyEffectToSegment(PixelStrip::Segment *seg, EffectType effect) {
-    if (!seg) return; // Safety check
-
-    // Delete the old effect to prevent memory leaks
-    if (seg->activeEffect) {
-        delete seg->activeEffect;
-        seg->activeEffect = nullptr;
-    }
-
-    // Create a new instance of the chosen effect
-    switch (effect) {
-        #define EFFECT_CASE(name, ns)         \
-            case EffectType::name:            \
-                seg->activeEffect = new ns(seg); \
-                break;
-        EFFECT_LIST(EFFECT_CASE)
-        #undef EFFECT_CASE
-
-        default:
-            Serial.println("Unknown effect.");
-            break;
-    }
-}
-
-
-// ── Parallel array of effect names for UI or serialization ──
+// --- Parallel array of effect names for UI or serialization ---
 #define STRING_ENTRY(name, ns) #name,
 static const char *EFFECT_NAMES[] = {
     EFFECT_LIST(STRING_ENTRY)
@@ -61,3 +22,27 @@ static const char *EFFECT_NAMES[] = {
 
 static constexpr uint8_t EFFECT_COUNT =
     sizeof(EFFECT_NAMES) / sizeof(EFFECT_NAMES[0]);
+
+// --- FIX: Moved from Init.h to a more logical location ---
+// This function creates an effect instance based on its string name.
+inline BaseEffect* createEffectByName(const String& name, PixelStrip::Segment* seg) {
+    #define CREATE_EFFECT_IF_MATCH(effectName, className) \
+        if (name.equalsIgnoreCase(#effectName)) { \
+            return new className(seg); \
+        }
+    
+    EFFECT_LIST(CREATE_EFFECT_IF_MATCH)
+    
+    #undef CREATE_EFFECT_IF_MATCH
+    return nullptr; // Return null if no matching effect is found
+}
+
+// Helper to get effect name from enum value
+inline const char *getEffectNameFromId(uint8_t id)
+{
+    if (id < EFFECT_COUNT)
+    {
+        return EFFECT_NAMES[id];
+    }
+    return nullptr;
+}

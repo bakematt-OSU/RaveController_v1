@@ -1,6 +1,5 @@
 #include "Processes.h"
 #include <Arduino_LSM6DSOX.h>
-// #include <WiFiNINA.h>
 #include <ArduinoBLE.h>
 #include <math.h>
 #include <PDM.h>
@@ -31,9 +30,12 @@ extern BLECharacteristic cmdCharacteristic;
 static BLEDevice connectedCentral;
 static String jsonBuffer = "";
 static bool isReceivingBatch = false;
-// static bool isSendingMultiPart = false; // Unused variable removed
+
+// --- NEW: Variables for sending multi-part responses ---
+static String responseToSend = "";
+static int sendOffset = 0;
+static bool isSendingResponse = false;
 static const unsigned long HEARTBEAT_INTERVAL = 1000;
-// static unsigned long lastHeartbeatTime = 0; // Unused variable removed
 
 // --- Binary command IDs for BLE/Android control ---
 static constexpr uint8_t CMD_SET_COLOR = 0x01;
@@ -88,6 +90,65 @@ const char *getBLECmdName(uint8_t cmd)
     }
 }
 
+// --- NEW: Function to queue a response for sending over BLE ---
+void queueResponseForSending(const String &response)
+{
+    if (isSendingResponse)
+    {
+        Serial.println("Warning: Tried to send a new response while another was in progress.");
+        return;
+    }
+    responseToSend = response;
+    sendOffset = 0;
+    isSendingResponse = true;
+    Serial.print("Queued for BLE send: ");
+    Serial.println(responseToSend);
+}
+
+// --- NEW: Function to process and send the next chunk of a multi-part response ---
+void processOutgoingBLE()
+{
+    if (!isSendingResponse || !connectedCentral || !connectedCentral.connected())
+    {
+        return;
+    }
+
+    int remaining = responseToSend.length() - sendOffset;
+    if (remaining > 0)
+    {
+        int chunkSize = 20; // Standard BLE MTU size
+        int chunkEnd = sendOffset + chunkSize;
+        if (chunkEnd > responseToSend.length())
+        {
+            chunkEnd = responseToSend.length();
+        }
+
+        String chunk = responseToSend.substring(sendOffset, chunkEnd);
+        cmdCharacteristic.writeValue((const uint8_t *)chunk.c_str(), chunk.length());
+
+        Serial.print("Sent chunk: ");
+        Serial.println(chunk);
+
+        sendOffset = chunkEnd;
+
+        // If this was the last chunk, reset the sending state
+        if (sendOffset >= responseToSend.length())
+        {
+            isSendingResponse = false;
+            sendOffset = 0;
+            responseToSend = "";
+            Serial.println("Finished sending multi-part response.");
+        }
+    }
+    else
+    {
+        // Should not happen if logic is correct, but as a safeguard
+        isSendingResponse = false;
+        sendOffset = 0;
+        responseToSend = "";
+    }
+}
+
 void setLedCount(uint16_t newSize)
 {
     if (newSize > 0 && newSize <= 2000)
@@ -129,8 +190,10 @@ BaseEffect *createEffectByName(const String &name, PixelStrip::Segment *seg)
 }
 
 // Helper to get effect name from enum value
-const char* getEffectNameFromId(uint8_t id) {
-    if (id < EFFECT_COUNT) {
+const char *getEffectNameFromId(uint8_t id)
+{
+    if (id < EFFECT_COUNT)
+    {
         return EFFECT_NAMES[id];
     }
     return nullptr;
@@ -176,12 +239,16 @@ void handleBatchConfigJson(const String &json)
             {
                 if (item.containsKey("brightness"))
                     allSegment->setBrightness(item["brightness"]);
-                if (item.containsKey("effect"))
+                if (item.containsKey("effectIndex"))
                 {
-                    String effectName = item["effect"].as<const char *>();
-                    if (allSegment->activeEffect)
-                        delete allSegment->activeEffect;
-                    allSegment->activeEffect = createEffectByName(effectName, allSegment);
+                    int effectId = item["effectIndex"];
+                    const char *effectName = getEffectNameFromId(effectId);
+                    if (effectName)
+                    {
+                        if (allSegment->activeEffect)
+                            delete allSegment->activeEffect;
+                        allSegment->activeEffect = createEffectByName(effectName, allSegment);
+                    }
                 }
             }
             else
@@ -192,10 +259,16 @@ void handleBatchConfigJson(const String &json)
                 PixelStrip::Segment *newSeg = strip->getSegments().back();
                 if (item.containsKey("brightness"))
                     newSeg->setBrightness(item["brightness"]);
-                if (item.containsKey("effect"))
+                if (item.containsKey("effectIndex"))
                 {
-                    String effectName = item["effect"].as<const char *>();
-                    newSeg->activeEffect = createEffectByName(effectName, newSeg);
+                    int effectId = item["effectIndex"];
+                    const char *effectName = getEffectNameFromId(effectId);
+                    if (effectName)
+                    {
+                        if (newSeg->activeEffect)
+                            delete newSeg->activeEffect;
+                        newSeg->activeEffect = createEffectByName(effectName, newSeg);
+                    }
                 }
             }
         }
@@ -418,7 +491,16 @@ void handleCommandLine(const String &line)
     }
     else if (cmd.equalsIgnoreCase("getstatus"))
     {
+        // *** FIX: This now queues the response to be sent over BLE ***
         StaticJsonDocument<1024> statusDoc;
+
+        // Add effects list to the status
+        JsonArray effects = statusDoc.createNestedArray("effects");
+        for (int i = 0; i < EFFECT_COUNT; ++i)
+        {
+            effects.add(EFFECT_NAMES[i]);
+        }
+
         JsonArray segs = statusDoc.createNestedArray("segments");
         for (auto *s : strip->getSegments())
         {
@@ -432,7 +514,8 @@ void handleCommandLine(const String &line)
         }
         String out;
         serializeJson(statusDoc, out);
-        Serial.println(out);
+        // Instead of printing to Serial, queue it for BLE sending
+        queueResponseForSending(out);
     }
     else if (cmd == "geteffectinfo")
     {
@@ -640,40 +723,50 @@ void handleBinarySerial(const uint8_t *data, size_t len)
         switch (cmdId)
         {
         case CMD_SET_COLOR:
-            if (len >= 4 && seg) {
+            if (len >= 4 && seg)
+            {
                 seg->setColor(data[1], data[2], data[3]);
             }
             break;
         case CMD_SET_EFFECT:
-            if (len >= 3) {
+            if (len >= 3)
+            {
                 uint8_t segIdx = data[1];
                 uint8_t effectId = data[2];
-                if (segIdx < segments.size()) {
-                    const char* effectName = getEffectNameFromId(effectId);
-                    if (effectName) {
-                        if (segments[segIdx]->activeEffect) delete segments[segIdx]->activeEffect;
+                if (segIdx < segments.size())
+                {
+                    const char *effectName = getEffectNameFromId(effectId);
+                    if (effectName)
+                    {
+                        if (segments[segIdx]->activeEffect)
+                            delete segments[segIdx]->activeEffect;
                         segments[segIdx]->activeEffect = createEffectByName(effectName, segments[segIdx]);
                     }
                 }
             }
             break;
         case CMD_SET_BRIGHTNESS:
-            if (len >= 2 && !segments.empty()) {
+            if (len >= 2 && !segments.empty())
+            {
                 segments[0]->setBrightness(data[1]);
             }
             break;
         case CMD_SET_SEG_BRIGHT:
-            if (len >= 3) {
+            if (len >= 3)
+            {
                 uint8_t segIdx = data[1];
-                if (segIdx < segments.size()) {
+                if (segIdx < segments.size())
+                {
                     segments[segIdx]->setBrightness(data[2]);
                 }
             }
             break;
         case CMD_SELECT_SEGMENT:
-            if (len >= 2) {
+            if (len >= 2)
+            {
                 uint8_t segIdx = data[1];
-                if (segIdx < segments.size()) {
+                if (segIdx < segments.size())
+                {
                     seg = segments[segIdx];
                 }
             }
@@ -681,7 +774,8 @@ void handleBinarySerial(const uint8_t *data, size_t len)
         case CMD_CLEAR_SEGMENTS:
             strip->clearUserSegments();
             seg = strip->getSegments()[0];
-            if (seg->activeEffect) {
+            if (seg->activeEffect)
+            {
                 delete seg->activeEffect;
             }
             seg->activeEffect = createEffectByName("SolidColor", seg);
@@ -689,11 +783,13 @@ void handleBinarySerial(const uint8_t *data, size_t len)
             strip->show();
             break;
         case CMD_SET_SEG_RANGE:
-            if (len >= 5) {
+            if (len >= 5)
+            {
                 uint8_t segIdx = data[1];
                 uint16_t start = (data[2] << 8) | data[3];
                 uint16_t end = (data[4] << 8) | data[5];
-                if (segIdx < segments.size()) {
+                if (segIdx < segments.size())
+                {
                     segments[segIdx]->setRange(start, end);
                 }
             }
@@ -702,7 +798,8 @@ void handleBinarySerial(const uint8_t *data, size_t len)
             handleCommandLine("getstatus");
             break;
         case CMD_GET_EFFECT_INFO:
-            if (len >= 2) {
+            if (len >= 2)
+            {
                 String cmd = "geteffectinfo " + String(data[1]);
                 handleCommandLine(cmd);
             }
@@ -711,7 +808,7 @@ void handleBinarySerial(const uint8_t *data, size_t len)
             if (strip)
             {
                 uint16_t count = strip->getLedCount();
-                uint8_t response[3] = {CMD_ACK, (uint8_t)(count >> 8), (uint8_t)(count & 0xFF)};
+                uint8_t response[3] = {CMD_GET_LED_COUNT, (uint8_t)(count >> 8), (uint8_t)(count & 0xFF)};
                 cmdCharacteristic.writeValue(response, sizeof(response));
                 Serial.print("Sent LED count via BLE: ");
                 Serial.println(count);
@@ -732,45 +829,73 @@ void handleBinarySerial(const uint8_t *data, size_t len)
 
 void processBLE()
 {
-    if (!connectedCentral)
+    /*******************************************************************
+     * * >>> IMPORTANT FIX FOR MISSING COMMANDS <<<
+     * * The reason you are not seeing commands is almost certainly because
+     * the BLE characteristic was not created with the correct properties.
+     * The characteristic needs to be able to be WRITTEN to by the app
+     * and also NOTIFY the app of changes (for sending data back).
+     * * In your main .ino sketch file, find the line where you create
+     * `cmdCharacteristic` and make sure it looks like this:
+     * * // WRONG (Probably what you have now)
+     * // BLECharacteristic cmdCharacteristic("...", BLEWrite, 20);
+     * * // CORRECT (Allows both writing and sending notifications)
+     * BLECharacteristic cmdCharacteristic("...", BLEWrite | BLENotify, 20);
+     * * This `| BLENotify` part is essential for two-way communication.
+     * *******************************************************************/
+
+    BLEDevice central = BLE.central();
+
+    if (central)
     {
-        connectedCentral = BLE.central();
-        if (connectedCentral)
+        // If a new central device has connected and we weren't connected before
+        if (!connectedCentral)
         {
+            connectedCentral = central;
             Serial.print("[BLE] Connected: ");
             Serial.println(connectedCentral.address());
         }
-    }
-    if (connectedCentral && connectedCentral.connected())
-    {
-        if (cmdCharacteristic.written())
+
+        // If the connected device is still connected
+        if (central.connected())
         {
-            size_t len = cmdCharacteristic.valueLength();
-            uint8_t buf[256];
-            if (len > sizeof(buf))
-                len = sizeof(buf);
-            memcpy(buf, cmdCharacteristic.value(), len);
-            if (!isReceivingBatch || buf[0] == CMD_BATCH_CONFIG)
+            // First, handle any incoming data
+            if (cmdCharacteristic.written())
             {
-                Serial.print("[BLE] Cmd recv ID=0x");
-                if (buf[0] < 0x10)
-                    Serial.print('0');
-                Serial.print(buf[0], HEX);
-                Serial.print(" (");
-                Serial.print(getBLECmdName(buf[0]));
-                Serial.print("), len=");
-                Serial.println(len);
+                size_t len = cmdCharacteristic.valueLength();
+                uint8_t buf[256];
+                if (len > sizeof(buf))
+                    len = sizeof(buf);
+                memcpy(buf, cmdCharacteristic.value(), len);
+                if (!isReceivingBatch || buf[0] == CMD_BATCH_CONFIG)
+                {
+                    Serial.print("[BLE] Cmd recv ID=0x");
+                    if (buf[0] < 0x10)
+                        Serial.print('0');
+                    Serial.print(buf[0], HEX);
+                    Serial.print(" (");
+                    Serial.print(getBLECmdName(buf[0]));
+                    Serial.print("), len=");
+                    Serial.println(len);
+                }
+                handleBinarySerial(buf, len);
             }
-            handleBinarySerial(buf, len);
+
+            // After handling incoming, process any outgoing data
+            processOutgoingBLE();
         }
     }
     else if (connectedCentral)
     {
+        // If the previously connected device has now disconnected
         Serial.print("[BLE] Disconnected from: ");
         Serial.println(connectedCentral.address());
-        connectedCentral = BLEDevice();
+        connectedCentral = BLEDevice(); // Invalidate the central device
         isReceivingBatch = false;
         jsonBuffer = "";
+        isSendingResponse = false; // Reset sending state on disconnect
+        responseToSend = "";
+        sendOffset = 0;
         BLE.advertise();
         Serial.println("[BLE] Advertising restarted");
     }

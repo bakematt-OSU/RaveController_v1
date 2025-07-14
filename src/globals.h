@@ -1,4 +1,5 @@
-#pragma once
+#ifndef GLOBALS_H
+#define GLOBALS_H
 
 #include <Arduino.h>
 #include "config.h"
@@ -6,18 +7,19 @@
 #include "PixelStrip.h"
 #include <LittleFS_Mbed_RP2040.h>
 
-// This file contains the declarations for all global variables.
-// They are defined in main.cpp to ensure there is a single source of truth.
+// Forward declarations for our main manager classes
+class BLEManager;
+class CommandHandler;
+
+// --- Global Object Instances ---
+extern BLEManager& bleManager;
+extern CommandHandler commandHandler;
 
 // --- LED Strip & Segments ---
 extern PixelStrip* strip;
-extern PixelStrip::Segment *seg;
+extern PixelStrip::Segment* seg;
 extern uint16_t LED_COUNT;
-
-// --- Color & Effects ---
-extern uint8_t activeR;
-extern uint8_t activeG;
-extern uint8_t activeB;
+extern const char* STATE_FILE;
 
 // --- Audio Processing ---
 extern AudioTrigger<SAMPLES> audioTrigger;
@@ -26,11 +28,6 @@ extern volatile int samplesRead;
 
 // --- Accelerometer & Motion ---
 extern float accelX, accelY, accelZ;
-extern volatile bool triggerRipple;
-extern unsigned long lastStepTime;
-extern bool debugAccel;
+extern volatile bool triggerRipple; // <-- FIX: Added extern declaration
 
-// --- System & State ---
-extern LittleFS_MBED myFS;
-extern HeartbeatColor hbColor;
-extern unsigned long lastHbChange;
+#endif // GLOBALS_H

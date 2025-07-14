@@ -3,19 +3,21 @@
     {
       "name": "all",
       "brightness": 50,
+      "startLed": 0,
+      "endLed": 45,
       "effect": "SolidColor"
     },
     {
       "name": "Fire Section",
-      "startLed": 50,
-      "endLed": 99,
+      "startLed": 0,
+      "endLed": 20,
       "brightness": 200,
       "effect": "Fire"
     },
     {
       "name": "Rainbow Section",
-      "startLed": 150,
-      "endLed": 250,
+      "startLed": 21,
+      "endLed": 45,
       "brightness": 255,
       "effect": "RainbowChase"
     }

@@ -1,22 +1,37 @@
 {
-    "cSpell.words": [
-        "DSOX",
-        "EFFECTSMANAGER",
-        "nanorp",
-        "NEOPIXELS",
-        "NEOPIXELSCONTROL",
-        "oaicite",
-        "picotool",
-        "PINMAP",
-        "qadd",
-        "qsub",
-        "RAINBOWCHASE",
-        "rainbowcycle",
-        "random8",
-        "raspberrypi",
-        "SERIALCONTROLLER",
-        "theaterchase",
-        "triggeroff",
-        "triggeron"
-    ]
+  // leave this off so other operations (build/test) don’t auto-close your monitor
+  "platformio-ide.autoCloseSerialMonitor": false,
+
+  // define a new multi-command sequence: close monitor → upload
+  "multiCommand.commands": [
+    {
+      "command": "multiCommand.uploadClose",
+      "sequence": [
+        "platformio-ide.closeSerialMonitor",
+        "platformio-ide.upload"
+      ]
+    }
+  ],
+
+  // your custom spell-checker words
+  "cSpell.words": [
+    "DSOX",
+    "EFFECTSMANAGER",
+    "nanorp",
+    "NEOPIXELS",
+    "NEOPIXELSCONTROL",
+    "oaicite",
+    "picotool",
+    "PINMAP",
+    "qadd",
+    "qsub",
+    "RAINBOWCHASE",
+    "rainbowcycle",
+    "random8",
+    "raspberrypi",
+    "SERIALCONTROLLER",
+    "theaterchase",
+    "triggeroff",
+    "triggeron"
+  ]
 }

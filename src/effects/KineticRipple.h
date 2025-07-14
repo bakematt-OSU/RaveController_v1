@@ -5,6 +5,7 @@
 #include "EffectParameter.h"
 #include "BaseEffect.h"
 #include <Arduino.h>
+#include "../globals.h" // <-- ADD THIS LINE
 
 // This global variable signals when a step/movement has been detected.
 extern volatile bool triggerRipple;

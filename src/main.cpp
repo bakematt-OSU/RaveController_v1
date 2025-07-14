@@ -1,117 +1,123 @@
 #include <Arduino.h>
-#include "config.h"
-#include "PixelStrip.h"
-#include "Triggers.h"
-#include <PDM.h>
+#include <ArduinoJson.h>
+#include <Arduino_LSM6DSOX.h>
+#include "globals.h"
 #include "Init.h"
-#include "Processes.h"
-#include "globals.h" // <-- Includes all global declarations
+#include "BLEManager.h"
+#include "CommandHandler.h"
+#include "SerialCommandHandler.h" // <-- Include the new header
+#include "ConfigManager.h" // <-- Include the new manager
 
-//================================================================
-// GLOBAL VARIABLE DEFINITIONS
-// This is the single source of truth for all global variables.
-//================================================================
+// --- Global Object Instances ---
+BLEManager& bleManager = BLEManager::getInstance();
+CommandHandler commandHandler(&bleManager);
 
-// --- Filesystem ---
+// --- Global Variable Definitions ---
+SerialCommandHandler serialCommandHandler; // <-- C
+PixelStrip* strip = nullptr;
+PixelStrip::Segment* seg = nullptr;
+uint16_t LED_COUNT = 150;
+const char* STATE_FILE = "/littlefs/state.json";
 LittleFS_MBED myFS;
 
-// --- LED Strip & Segments ---
-PixelStrip *strip = nullptr;
-PixelStrip::Segment *seg = nullptr;
-uint16_t LED_COUNT = 45; // Default value, will be overwritten by config
-
-// --- Color & Effects ---
-uint8_t activeR = 255;
-uint8_t activeG = 0;
-uint8_t activeB = 255;
-
-// --- Audio Processing ---
 AudioTrigger<SAMPLES> audioTrigger;
 volatile int16_t sampleBuffer[SAMPLES];
 volatile int samplesRead = 0;
-
-// --- Accelerometer & Motion ---
 float accelX, accelY, accelZ;
-volatile bool triggerRipple = false;
-unsigned long lastStepTime = 0;
-bool debugAccel = false;
+volatile bool triggerRipple = false; // <-- FIX: Added definition
 
-// --- System & State ---
-HeartbeatColor hbColor = HeartbeatColor::RED;
-volatile bool saveConfigRequested = false; // <-- DEFINE the new flag
-unsigned long lastHbChange = 0;
+// --- Forward declarations ---
+void processAudio();
+void processAccel();
 
-//================================================================
-// SETUP & LOOP
-//================================================================
-
-void setup()
-{
-    // Initialize core components first
+// --- Callback function for BLEManager ---
+void onBleCommandReceived(const String& command) {
+    // FIX: Call the correct command handler
+    serialCommandHandler.handleCommand(command);
+}
+void setup() {
     initSerial();
-    initFS(); // Mount the global filesystem once
+    initFS();
 
-    // --- Staged Configuration Loading ---
-
-    // 1. Load the configuration string from the filesystem
+    // Now calls the global function
     String configJson = loadConfig();
-
-    // 2. Pre-strip Initialization: Use config to set the LED_COUNT
-    if (configJson.length() > 0)
-    {
-        StaticJsonDocument<1024> doc;
+    if (configJson.length() > 0) {
+        StaticJsonDocument<256> doc; // Just need a small doc to read led_count
         DeserializationError error = deserializeJson(doc, configJson);
-        if (error)
-        {
-            Serial.print("Failed to parse config in setup: ");
-            Serial.println(error.c_str());
-        }
-        else
-        {
-            // Set the global LED_COUNT before initializing the strip
-            LED_COUNT = doc["led_count"] | 45;
+        if (error == DeserializationError::Ok) {
+            LED_COUNT = doc["led_count"] | 150;
         }
     }
 
-    // 3. Initialize hardware that may depend on config values (like LED_COUNT)
     initIMU();
     initAudio();
-    initLEDs(); // This function now uses the correct, loaded LED_COUNT
+    initLEDs(); // Initialize LEDs first
 
-    // 4. Post-strip Initialization: Apply the rest of the config (segments, effects)
-    if (configJson.length() > 0)
-    {
-        handleBatchConfigJson(configJson);
-        Serial.println("Applied full configuration from file.");
+    // --- FIX: Restore the full configuration after LEDs are initialized ---
+    if (configJson.length() > 0) {
+        Serial.println("Restoring full configuration from saved state...");
+        handleBatchConfigJson(configJson); // Reuse existing logic to apply the config
     }
+    // --- End of Fix ---
 
-    // Initialize remaining services
-    initBLE(); // Must be last to advertise correctly configured services
-
-    Serial.println("\n--- Performing automatic save test at end of setup... ---");
-    saveConfig(); // <-- THE TEST: Call saveConfig here.
+    bleManager.begin("RaveControllerV2", onBleCommandReceived);
 
     Serial.println("Setup complete. Entering main loop...");
 }
+// void setup() {
+//     initSerial();
+//     initFS();
 
-void loop()
-{
-    // Process all ongoing tasks
-    processSerial();
-    processBLE();
+//      // Now calls the global function
+//     String configJson = loadConfig();
+//     if (configJson.length() > 0) {
+//         StaticJsonDocument<256> doc;
+//         if (deserializeJson(doc, configJson) == DeserializationError::Ok) {
+//             LED_COUNT = doc["led_count"] | 150;
+//         }
+//     }
+
+//     initIMU();
+//     initAudio();
+//     initLEDs();
+
+//     bleManager.begin("RaveControllerV2", onBleCommandReceived);
+
+//     Serial.println("Setup complete. Entering main loop...");
+// }
+
+void loop() {
+        // --- ADD THIS BLOCK TO PROCESS SERIAL COMMANDS ---
+    if (Serial.available() > 0) {
+        String command = Serial.readStringUntil('\n');
+        command.trim();
+        if (command.length() > 0) {
+            serialCommandHandler.handleCommand(command);
+        }
+    }
+    // --- END OF NEW BLOCK ---
+    bleManager.update();
     processAudio();
     processAccel();
-    // updateDigHeartbeat();
 
-    // Update all LED segments
-    if (strip)
-    {
-        for (auto *s : strip->getSegments())
-        {
+    if (strip) {
+        for (auto* s : strip->getSegments()) {
             s->update();
         }
-
-        // Show the final result on the strip
         strip->show();
+    }
+}
+
+// --- Hardware Processing Functions ---
+void processAudio() {
+    if (samplesRead > 0) {
+        audioTrigger.update(sampleBuffer);
+        samplesRead = 0;
+    }
+}
+
+void processAccel() {
+    if (IMU.accelerationAvailable()) {
+        IMU.readAcceleration(accelX, accelY, accelZ);
     }
 }

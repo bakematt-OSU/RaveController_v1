@@ -12,8 +12,7 @@ constexpr uint8_t LEDB_PIN = 27;
 constexpr uint8_t LED_PIN  = 4;
 
 // —— LED Strip Configuration ——
-// constexpr uint16_t LED_COUNT     = 585; // This is now a variable
-extern uint16_t LED_COUNT;               // Declare it as an external variable
+extern uint16_t LED_COUNT;
 constexpr uint8_t  BRIGHTNESS    = 10;
 constexpr uint8_t  SEGMENT_COUNT = 0;
 
@@ -25,24 +24,5 @@ constexpr unsigned long STEP_COOLDOWN_MS    = 300;
 constexpr int SAMPLES         = 256;
 constexpr int SAMPLING_FREQ   = 16000;
 
-// —— Heartbeat Effect ——
-enum class HeartbeatColor { RED, GREEN, BLUE };
-constexpr unsigned long HB_INTERVAL_MS = 2000;
-
-
-// where we store the overall state
-static constexpr char STATE_FILE[] = "/littlefs/state.json";
-
-
-/// --- Heartbeat Effect State Variables ---
-enum HeartbeatColorState
-{
-    HEARTBEAT_RED,
-    HEARTBEAT_GREEN,
-    HEARTBEAT_BLUE
-};
-
-// --- THIS IS THE FIX ---
-// Declare the variables here, but don't define them
-extern HeartbeatColorState heartbeatColorState;
-extern unsigned long lastHeartbeatColorChange;
+// NOTE: The definition for STATE_FILE has been removed from here.
+// It is now defined in main.cpp and declared extern in globals.h
