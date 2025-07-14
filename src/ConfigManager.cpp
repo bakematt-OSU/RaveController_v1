@@ -80,30 +80,34 @@ String loadConfig()
 }
 
 // Sets a new LED count, saves it, and restarts the device.
-void setLedCount(uint16_t newSize) {
-    if (newSize > 0 && newSize <= 4000) {
+void setLedCount(uint16_t newSize)
+{
+    if (newSize > 0 && newSize <= 4000)
+    {
         LED_COUNT = newSize;
-        if (saveConfig()) {
+        if (saveConfig())
+        {
             Serial.print("LED count set to ");
             Serial.print(newSize);
             Serial.println(". Restarting to apply changes.");
 
-            // --- FIX: Force the filesystem to write all cached data to flash ---
-            Serial.println("Flushing filesystem to flash...");
-            myFS.end();  // Un-mount the filesystem to force a cache flush
-            myFS.init(); // Re-mount the filesystem for the next boot
+            // --- FIX: Add a delay to ensure the file is written to flash ---
+            delay(200); // Give the filesystem time to commit the file
             // --- End of Fix ---
 
-            delay(100); // A brief delay for stability before reset
             NVIC_SystemReset();
-        } else {
+        }
+        else
+        {
+            // This response is more for BLE, but good to have
             bleManager.sendMessage("{\"error\":\"SAVE_CONFIG_FAILED\"}");
         }
-    } else {
-        bleManager->sendMessage("{\"error\":\"INVALID_LED_COUNT\"}");
+    }
+    else
+    {
+        bleManager.sendMessage("{\"error\":\"INVALID_LED_COUNT\"}");
     }
 }
-
 
 // Processes a JSON string to configure segments and effects.
 void handleBatchConfigJson(const String &json)
