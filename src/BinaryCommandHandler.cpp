@@ -6,7 +6,7 @@
  * the corrected 'handleBatchConfig' to send a success response, and enhanced
  * Serial debugging output for easier troubleshooting.
  *
- * @version 2.3
+ * @version 2.4
  * @date 2025-07-15
  */
 #include "BinaryCommandHandler.h"
@@ -17,7 +17,7 @@
 #include <ArduinoJson.h>
 
 // Forward declaration for a function you likely have in another file.
-void handleBatchConfigJson(const String &jsonPayload); 
+void handleBatchConfigJson(const String &jsonPayload);
 
 extern PixelStrip *strip;
 extern uint16_t LED_COUNT;
@@ -25,21 +25,37 @@ extern uint16_t LED_COUNT;
 // --- Main Command Router ---
 void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
 {
-    if (len < 1) {
+    if (len < 1)
+    {
         Serial.println("ERR: Received empty command.");
         return;
     }
 
-    // Print incoming raw data for debugging
-    Serial.print("<- RX Command (len ");
-    Serial.print(len);
-    Serial.print("): ");
-    for(size_t i=0; i<len; i++) {
-        Serial.print(data[i], HEX);
-        Serial.print(" ");
-    }
-    Serial.println();
+    // If we are in the middle of receiving a batch config, buffer the data
+    if (isReceivingBatchConfig)
+    {
+        for (size_t i = 0; i < len; i++)
+        {
+            batchConfigBuffer += (char)data[i];
+        }
 
+        // Check if the received data completes the JSON object
+        // A simple but effective check is looking for the closing sequence.
+        if (batchConfigBuffer.endsWith("}]}"))
+        {
+            Serial.println("Batch config fully received. Parsing...");
+            Serial.println(batchConfigBuffer);
+
+            // Now that we have the full JSON, process it.
+            handleBatchConfigJson(batchConfigBuffer);
+
+            // Reset the state machine
+            isReceivingBatchConfig = false;
+            batchConfigBuffer = "";
+        }
+        // Don't process this chunk as a new command, just wait for more data.
+        return;
+    }
 
     BleCommand cmd = (BleCommand)data[0];
     const uint8_t *payload = data + 1;
@@ -86,8 +102,9 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
         sendGenericAck = false;
         break;
     case CMD_BATCH_CONFIG:
+        // This is the start of a new batch configuration
         handleBatchConfig(payload, payloadLen);
-        sendGenericAck = false;
+        sendGenericAck = false; // The function will handle its own ACKs/responses
         break;
     case CMD_ACK:
         handleAck();
@@ -111,14 +128,37 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
 
 // --- Command Implementations ---
 
+void BinaryCommandHandler::handleBatchConfig(const uint8_t *payload, size_t len)
+{
+    Serial.println("CMD: Batch Config STARTED");
+    isReceivingBatchConfig = true;
+    batchConfigBuffer = ""; // Clear buffer
+    for (size_t i = 0; i < len; i++)
+    {
+        batchConfigBuffer += (char)payload[i];
+    }
+    // It's possible the whole message came in one chunk if it's small.
+    if (batchConfigBuffer.endsWith("}]}"))
+    {
+        Serial.println("Batch config fully received (single chunk). Parsing...");
+        handleBatchConfigJson(batchConfigBuffer);
+        isReceivingBatchConfig = false;
+        batchConfigBuffer = "";
+    }
+    // Otherwise, we just wait for the next chunk to arrive, which will be handled
+    // by the `if (isReceivingBatchConfig)` block at the top of `handleCommand`.
+}
+
 void BinaryCommandHandler::handleSetColor(const uint8_t *payload, size_t len)
 {
     Serial.println("CMD: Set Color");
-    if (len < 4) {
+    if (len < 4)
+    {
         Serial.println("ERR: Payload too short for Set Color");
         return;
     }
-    if (!strip) {
+    if (!strip)
+    {
         Serial.println("ERR: Strip not initialized!");
         return;
     }
@@ -135,7 +175,9 @@ void BinaryCommandHandler::handleSetColor(const uint8_t *payload, size_t len)
         Serial.print(payload[2]);
         Serial.print(" B:");
         Serial.println(payload[3]);
-    } else {
+    }
+    else
+    {
         Serial.print("ERR: Invalid segment ID: ");
         Serial.println(segId);
     }
@@ -144,15 +186,17 @@ void BinaryCommandHandler::handleSetColor(const uint8_t *payload, size_t len)
 void BinaryCommandHandler::handleSetEffect(const uint8_t *payload, size_t len)
 {
     Serial.println("CMD: Set Effect");
-    if (len < 2) {
+    if (len < 2)
+    {
         Serial.println("ERR: Payload too short for Set Effect");
         return;
     }
-     if (!strip) {
+    if (!strip)
+    {
         Serial.println("ERR: Strip not initialized!");
         return;
     }
-    
+
     uint8_t segId = payload[0];
     uint8_t effectId = payload[1];
 
@@ -185,11 +229,13 @@ void BinaryCommandHandler::handleSetEffect(const uint8_t *payload, size_t len)
 void BinaryCommandHandler::handleSetBrightness(const uint8_t *payload, size_t len)
 {
     Serial.println("CMD: Set Brightness (Global)");
-    if (len < 1) {
+    if (len < 1)
+    {
         Serial.println("ERR: Payload too short for Set Brightness");
         return;
     }
-    if (!strip) {
+    if (!strip)
+    {
         Serial.println("ERR: Strip not initialized!");
         return;
     }
@@ -201,11 +247,13 @@ void BinaryCommandHandler::handleSetBrightness(const uint8_t *payload, size_t le
 void BinaryCommandHandler::handleSetSegmentBrightness(const uint8_t *payload, size_t len)
 {
     Serial.println("CMD: Set Segment Brightness");
-    if (len < 2) {
+    if (len < 2)
+    {
         Serial.println("ERR: Payload too short for Set Seg Brightness");
         return;
     }
-    if (!strip) {
+    if (!strip)
+    {
         Serial.println("ERR: Strip not initialized!");
         return;
     }
@@ -247,11 +295,13 @@ void BinaryCommandHandler::handleClearSegments()
 void BinaryCommandHandler::handleSetSegmentRange(const uint8_t *payload, size_t len)
 {
     Serial.println("CMD: Set Segment Range");
-    if (len < 5) {
+    if (len < 5)
+    {
         Serial.println("ERR: Payload too short for Set Seg Range");
         return;
     }
-    if (!strip) {
+    if (!strip)
+    {
         Serial.println("ERR: Strip not initialized!");
         return;
     }
@@ -279,7 +329,8 @@ void BinaryCommandHandler::handleSetSegmentRange(const uint8_t *payload, size_t 
 void BinaryCommandHandler::handleSetLedCount(const uint8_t *payload, size_t len)
 {
     Serial.println("CMD: Set LED Count");
-    if (len < 2) {
+    if (len < 2)
+    {
         Serial.println("ERR: Payload too short for Set LED Count");
         return;
     }
@@ -336,59 +387,15 @@ void BinaryCommandHandler::handleGetLedCount()
     Serial.println(LED_COUNT);
 }
 
-void BinaryCommandHandler::handleBatchConfig(const uint8_t *payload, size_t len)
-{
-    Serial.println("CMD: Batch Config");
-    String jsonPayload;
-    jsonPayload.reserve(len + 1);
-    for (size_t i = 0; i < len; ++i)
-    {
-        jsonPayload += (char)payload[i];
-    }
-    
-    Serial.print("Received JSON payload (");
-    Serial.print(jsonPayload.length());
-    Serial.println(" bytes). Applying...");
-    // Serial.println(jsonPayload); // Uncomment for full JSON dump
-
-    handleBatchConfigJson(jsonPayload); // Assuming this function applies the config.
-
-    // *** THE FIX IS HERE ***
-    // After successfully applying the configuration, we MUST send a response.
-    // This tells the Android app that the command was successful and it can
-    // send the next command in its queue. Without this, the app freezes.
-    BLEManager::getInstance().sendMessage("{\"status\":\"OK\"}");
-    Serial.println("-> Sent Batch Config OK response");
-}
-
 void BinaryCommandHandler::handleGetEffectInfo(const uint8_t *payload, size_t len)
 {
-    // Serial.println("CMD: Get Effect Info");
-    // if (len < 1)
-    // {
-    //     Serial.println("ERR: Missing effect ID for GET_EFFECT_INFO");
-    //     return;
-    // }
-    // uint8_t effectIndex = payload[0];
-    // Serial.print("Requested info for effect index: ");
-    // Serial.println(effectIndex);
-
-    // const char *effectName = getEffectNameFromId(effectIndex);
-
-    // if (!effectName || !strip || strip->getSegments().empty())
-    // {
-    //     Serial.print("ERR: Invalid effect index, strip not initialized, or no segments. Index: ");
-    //     Serial.println(effectIndex);
-    //     return;
-    // }
-        Serial.println("CMD: Get Effect Info");
-    if (len < 2) // Changed len check to 2, because we expect segment index and effect index
+    Serial.println("CMD: Get Effect Info");
+    if (len < 2)
     {
         Serial.println("ERR: Missing segment ID or effect ID for GET_EFFECT_INFO");
         return;
     }
-    // uint8_t segmentIndex = payload[0]; // If you need to use segmentIndex, you can extract it here
-    uint8_t effectIndex = payload[1]; // CORRECTED: Get effect index from payload[1]
+    uint8_t effectIndex = payload[1];
 
     Serial.print("Requested info for effect index: ");
     Serial.println(effectIndex);
@@ -402,7 +409,6 @@ void BinaryCommandHandler::handleGetEffectInfo(const uint8_t *payload, size_t le
         return;
     }
 
-    // Create a temporary "dummy" segment to pass to the effect constructor.
     PixelStrip::Segment *dummySegment = strip->getSegments()[0];
     BaseEffect *tempEffect = createEffectByName(effectName, dummySegment);
 
@@ -413,7 +419,6 @@ void BinaryCommandHandler::handleGetEffectInfo(const uint8_t *payload, size_t le
         return;
     }
 
-    // Create the JSON response
     StaticJsonDocument<512> doc;
     doc["effect"] = tempEffect->getName();
     JsonArray params = doc.createNestedArray("params");
@@ -446,7 +451,6 @@ void BinaryCommandHandler::handleGetEffectInfo(const uint8_t *payload, size_t le
         p_obj["max_val"] = p->max_val;
     }
 
-    // Send the JSON response over BLE
     String response;
     serializeJson(doc, response);
     Serial.print("-> Sending Effect Info for '");
@@ -456,7 +460,6 @@ void BinaryCommandHandler::handleGetEffectInfo(const uint8_t *payload, size_t le
     Serial.println(" bytes)");
     BLEManager::getInstance().sendMessage(response);
 
-    // Clean up the temporary effect instance
     delete tempEffect;
 }
 

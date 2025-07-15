@@ -4,8 +4,9 @@
  *
  * This version is updated to use the new simplified BLEManager and a pure
  * binary command handler, removing the old text-based serial handler.
+ * It also re-introduces a serial command handler for debugging.
  *
- * @version 2.0
+ * @version 2.1
  * @date 2025-07-15
  */
 #include <Arduino.h>
@@ -15,11 +16,13 @@
 #include "Init.h"
 #include "BLEManager.h"
 #include "BinaryCommandHandler.h"
+#include "SerialCommandHandler.h" // Include the serial handler
 #include "ConfigManager.h"
 
 // --- Global Object Instances ---
 BLEManager& bleManager = BLEManager::getInstance();
 BinaryCommandHandler binaryCommandHandler;
+SerialCommandHandler serialCommandHandler; // Create an instance of the serial handler
 
 // --- Global Variable Definitions ---
 PixelStrip* strip = nullptr;
@@ -37,6 +40,7 @@ volatile bool triggerRipple = false;
 // --- Forward declarations for hardware processing ---
 void processAudio();
 void processAccel();
+void processSerial(); // Add forward declaration for serial processing
 
 /**
  * @brief Callback function for the BLEManager.
@@ -84,6 +88,9 @@ void loop() {
     // Poll for BLE events
     bleManager.update();
 
+    // Poll for Serial commands
+    processSerial();
+
     // Process hardware inputs
     processAudio();
     processAccel();
@@ -94,6 +101,20 @@ void loop() {
             s->update();
         }
         strip->show();
+    }
+}
+
+// --- Serial Command Processing ---
+void processSerial() {
+    if (Serial.available() > 0) {
+        String command = Serial.readStringUntil('\n');
+        command.trim();
+        if (command.length() > 0) {
+            Serial.print("Serial Command Received: '");
+            Serial.print(command);
+            Serial.println("'");
+            serialCommandHandler.handleCommand(command);
+        }
     }
 }
 

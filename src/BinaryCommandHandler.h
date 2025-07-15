@@ -34,6 +34,10 @@ public:
     void handleCommand(const uint8_t* data, size_t len);
 
 private:
+    // --- State for handling chunked data ---
+    String batchConfigBuffer;
+    bool isReceivingBatchConfig = false;
+
     // --- Command-specific handler methods ---
     void handleSetColor(const uint8_t* payload, size_t len);
     void handleSetEffect(const uint8_t* payload, size_t len);
