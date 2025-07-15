@@ -5,15 +5,17 @@
 #include "Init.h"
 #include "BLEManager.h"
 #include "CommandHandler.h"
-#include "SerialCommandHandler.h" // <-- Include the new header
-#include "ConfigManager.h" // <-- Include the new manager
+#include "SerialCommandHandler.h" 
+#include "ConfigManager.h" 
+#include "BinaryCommandHandler.h" // Added in previous step
 
 // --- Global Object Instances ---
 BLEManager& bleManager = BLEManager::getInstance();
 CommandHandler commandHandler(&bleManager);
+BinaryCommandHandler binaryCommandHandler; // Added in previous step
 
 // --- Global Variable Definitions ---
-SerialCommandHandler serialCommandHandler; // <-- C
+SerialCommandHandler serialCommandHandler; 
 PixelStrip* strip = nullptr;
 PixelStrip::Segment* seg = nullptr;
 uint16_t LED_COUNT = 150;
@@ -24,7 +26,7 @@ AudioTrigger<SAMPLES> audioTrigger;
 volatile int16_t sampleBuffer[SAMPLES];
 volatile int samplesRead = 0;
 float accelX, accelY, accelZ;
-volatile bool triggerRipple = false; // <-- FIX: Added definition
+volatile bool triggerRipple = false; 
 
 // --- Forward declarations ---
 void processAudio();
@@ -32,17 +34,26 @@ void processAccel();
 
 // --- Callback function for BLEManager ---
 void onBleCommandReceived(const String& command) {
-    // FIX: Call the correct command handler
-    serialCommandHandler.handleCommand(command);
+    if (command.startsWith("0x")) {
+        int hex_len = (command.length() - 2) / 2;
+        uint8_t* hex_data = new uint8_t[hex_len];
+        for(int i=0; i < hex_len; i++) {
+            String byteString = command.substring(2 + i*2, 4 + i*2);
+            hex_data[i] = strtol(byteString.c_str(), NULL, 16);
+        }
+        binaryCommandHandler.handleCommand(hex_data, hex_len);
+        delete[] hex_data;
+    } else {
+        serialCommandHandler.handleCommand(command);
+    }
 }
 void setup() {
     initSerial();
     initFS();
 
-    // Now calls the global function
     String configJson = loadConfig();
     if (configJson.length() > 0) {
-        StaticJsonDocument<256> doc; // Just need a small doc to read led_count
+        StaticJsonDocument<256> doc; 
         DeserializationError error = deserializeJson(doc, configJson);
         if (error == DeserializationError::Ok) {
             LED_COUNT = doc["led_count"] | 150;
@@ -51,51 +62,41 @@ void setup() {
 
     initIMU();
     initAudio();
-    initLEDs(); // Initialize LEDs first
+    initLEDs(); 
 
-    // --- FIX: Restore the full configuration after LEDs are initialized ---
     if (configJson.length() > 0) {
         Serial.println("Restoring full configuration from saved state...");
-        handleBatchConfigJson(configJson); // Reuse existing logic to apply the config
+        handleBatchConfigJson(configJson); 
     }
-    // --- End of Fix ---
-
+    
     bleManager.begin("RaveControllerV2", onBleCommandReceived);
 
     Serial.println("Setup complete. Entering main loop...");
 }
-// void setup() {
-//     initSerial();
-//     initFS();
-
-//      // Now calls the global function
-//     String configJson = loadConfig();
-//     if (configJson.length() > 0) {
-//         StaticJsonDocument<256> doc;
-//         if (deserializeJson(doc, configJson) == DeserializationError::Ok) {
-//             LED_COUNT = doc["led_count"] | 150;
-//         }
-//     }
-
-//     initIMU();
-//     initAudio();
-//     initLEDs();
-
-//     bleManager.begin("RaveControllerV2", onBleCommandReceived);
-
-//     Serial.println("Setup complete. Entering main loop...");
-// }
 
 void loop() {
-        // --- ADD THIS BLOCK TO PROCESS SERIAL COMMANDS ---
+    // --- FIX: This block now correctly handles both text and binary commands ---
     if (Serial.available() > 0) {
         String command = Serial.readStringUntil('\n');
         command.trim();
         if (command.length() > 0) {
-            serialCommandHandler.handleCommand(command);
+            // Replicate the logic from the BLE handler to route commands correctly
+            if (command.startsWith("0x")) {
+                int hex_len = (command.length() - 2) / 2;
+                uint8_t* hex_data = new uint8_t[hex_len];
+                for(int i=0; i < hex_len; i++) {
+                    String byteString = command.substring(2 + i*2, 4 + i*2);
+                    hex_data[i] = strtol(byteString.c_str(), NULL, 16);
+                }
+                binaryCommandHandler.handleCommand(hex_data, hex_len);
+                delete[] hex_data;
+            } else {
+                serialCommandHandler.handleCommand(command);
+            }
         }
     }
-    // --- END OF NEW BLOCK ---
+    // --- END OF FIX ---
+    
     bleManager.update();
     processAudio();
     processAccel();

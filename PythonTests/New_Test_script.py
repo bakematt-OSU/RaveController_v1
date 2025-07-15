@@ -391,3 +391,249 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     run_all_tests(args.port, args.baud, args.json_config, args.mode)
+    
+    
+    
+    
+    
+    
+    #!/usr/bin/env python3
+"""
+The definitive, comprehensive, and interactive test harness for RaveController.
+This script validates all major functionality via the expanded serial and binary command interfaces.
+"""
+import argparse
+import serial
+import time
+import json
+import sys
+import os
+
+BAUD = 115200
+DELAY = 0.4
+DEFAULT_LED_COUNT = 45
+
+# A list of basic commands to test the core text API
+ASCII_COMMANDS_TO_TEST = [
+    "clearsegments",
+    "addsegment 0 20 seg1",
+    "addsegment 21 44 seg2",
+    "listsegments",
+    "getstatus",
+    "saveconfig",
+]
+
+# --- NEW: Binary Command Definitions ---
+CMD_SET_COLOR = 0x01
+CMD_SET_EFFECT = 0x02
+CMD_SET_BRIGHTNESS = 0x03
+CMD_SET_LED_COUNT = 0x0C
+
+
+def read_all(ser):
+    """Reads all available data from the serial port with a timeout."""
+    data = b""
+    start_time = time.time()
+    while time.time() - start_time < DELAY:
+        if ser.in_waiting > 0:
+            data += ser.read(ser.in_waiting)
+        else:
+            time.sleep(0.01)
+    return data.decode("utf-8", errors="ignore").strip()
+
+
+def send_command(ser, command, quiet=False):
+    """Sends a text command and returns the response."""
+    if not quiet:
+        print(f">>> SEND (ASCII): {command[:100]}{'...' if len(command) > 100 else ''}")
+
+    ser.write((command + "\n").encode())
+    time.sleep(DELAY)
+    resp = read_all(ser)
+
+    if not quiet:
+        print(f"<<< RECV: {resp or '<no response>'}")
+        print("-" * 20)
+
+    return resp
+
+# --- NEW: Function to send binary commands ---
+def send_binary_command(ser, command_bytes, quiet=False):
+    """Sends a binary command and returns the response."""
+    if not quiet:
+        print(f">>> SEND (BINARY): {command_bytes.hex()}")
+
+    # We'll send the binary command as a hex string prefixed with '0x'
+    # to be handled by the onBleCommandReceived function in main.cpp
+    hex_command = "0x" + command_bytes.hex()
+    ser.write((hex_command + "\n").encode())
+    time.sleep(DELAY)
+    resp = read_all(ser)
+
+    if not quiet:
+        print(f"<<< RECV: {resp or '<no response>'}")
+        print("-" * 20)
+
+    return resp
+
+
+def wait_for_device_ready(ser, timeout=10):
+    """Waits for the device to signal it's ready."""
+    print("      Waiting for device to be ready...")
+    start_time = time.time()
+    buffer = ""
+    while time.time() - start_time < timeout:
+        if ser.in_waiting > 0:
+            buffer += ser.read(ser.in_waiting).decode("utf-8", errors="ignore")
+            if "Setup complete. Entering main loop..." in buffer:
+                print("      Device is ready.")
+                ser.reset_input_buffer()
+                return True
+        time.sleep(0.1)
+    print("      !! TIMEOUT: Did not receive ready signal from device.")
+    return False
+
+def test_standard_commands(ser):
+    """Runs through a basic set of plain-text commands."""
+    print("## Testing Standard ASCII Commands... ##")
+    all_ok = True
+    for cmd in ASCII_COMMANDS_TO_TEST:
+        response = send_command(ser, cmd)
+        if "ERR" in response:
+            all_ok = False
+            print(f"  !! FAIL: Command '{cmd}' returned an error.")
+    if all_ok:
+        print("  -> PASS: All standard commands executed without errors.")
+    return all_ok
+
+
+# --- NEW: Test function for binary commands ---
+def test_binary_commands(ser):
+    """Tests the core binary command functionality."""
+    print("\n## Testing Binary Commands... ##")
+    all_ok = True
+
+    # Test Case 1: Set Brightness
+    print("  1. Testing CMD_SET_BRIGHTNESS...")
+    brightness = 128
+    cmd_bytes = bytes([CMD_SET_BRIGHTNESS, brightness])
+    response = send_binary_command(ser, cmd_bytes)
+    if f"Set Brightness to {brightness}" not in response:
+        all_ok = False
+        print("  !! FAIL: CMD_SET_BRIGHTNESS did not return the expected confirmation.")
+
+    # Test Case 2: Set Color
+    print("\n  2. Testing CMD_SET_COLOR...")
+    r, g, b = 255, 0, 255  # Magenta
+    cmd_bytes = bytes([CMD_SET_COLOR, r, g, b])
+    response = send_binary_command(ser, cmd_bytes)
+    if "Set color" not in response:
+        all_ok = False
+        print("  !! FAIL: CMD_SET_COLOR did not return the expected confirmation.")
+
+    # Test Case 3: Set Effect (using effect ID for 'Fire' which is 5)
+    print("\n  3. Testing CMD_SET_EFFECT...")
+    effect_id_fire = 5
+    cmd_bytes = bytes([CMD_SET_EFFECT, effect_id_fire])
+    response = send_binary_command(ser, cmd_bytes)
+    if "Set effect to Fire" not in response:
+        all_ok = False
+        print("  !! FAIL: CMD_SET_EFFECT did not return the expected confirmation for 'Fire'.")
+
+    # Test Case 4: Set LED Count (will restart the device)
+    print("\n  4. Testing CMD_SET_LED_COUNT (device will restart)...")
+    new_count = 35
+    cmd_bytes = bytes([CMD_SET_LED_COUNT, (new_count >> 8) & 0xFF, new_count & 0xFF])
+    send_binary_command(ser, cmd_bytes)
+    
+    ser.close()
+    time.sleep(4)
+    ser.open()
+    if not wait_for_device_ready(ser):
+        return False
+    
+    # Verify the new count
+    response = send_command(ser, "getledcount", quiet=True)
+    if f"LED_COUNT: {new_count}" not in response:
+        all_ok = False
+        print(f"  !! FAIL: After restart, expected LED count {new_count} but it was not set.")
+
+    # Restore default count
+    send_command(ser, f"setledcount {DEFAULT_LED_COUNT}", quiet=True)
+    ser.close()
+    time.sleep(4)
+    ser.open()
+    wait_for_device_ready(ser)
+
+
+    if all_ok:
+        print("\n  -> PASS: All binary commands executed successfully.")
+    
+    return all_ok
+
+
+def run_all_tests(port, baud, json_config, mode):
+    """Main function to run the full test suite."""
+    print(f"Opening serial port {port} @ {baud} baud")
+    try:
+        ser = serial.Serial(port, baud, timeout=DELAY)
+        
+        if not wait_for_device_ready(ser):
+                sys.exit(1)
+
+        # Run all major test functions
+        std_ok = test_standard_commands(ser)
+        binary_ok = test_binary_commands(ser) # <-- NEW
+        led_count_ok = test_led_count_commands(ser)
+        config_ok = test_config_persistence(ser)
+        json_ok = test_json_upload(ser, json_config)
+        params_ok = test_all_parameters_for_all_effects(ser, mode)
+
+        print("\n\n--- FINAL TEST SUMMARY ---")
+        print(f"  Standard Commands:       {'PASS' if std_ok else 'FAIL'}")
+        print(f"  Binary Commands:         {'PASS' if binary_ok else 'FAIL'}") # <-- NEW
+        print(f"  LED Count Management:    {'PASS' if led_count_ok else 'FAIL'}")
+        print(f"  Config Persistence:      {'PASS' if config_ok else 'FAIL'}")
+        print(f"  JSON Upload:             {'PASS' if json_ok else 'FAIL'}")
+        print(f"  Parameter Validation:    {'PASS' if params_ok else 'FAIL'}")
+
+        if std_ok and binary_ok and led_count_ok and config_ok and json_ok and params_ok:
+            print("\n🎉 All tests passed successfully! 🎉")
+        else:
+            print("\n❌ Some tests failed. Please review the log. ❌")
+
+    except serial.SerialException as e:
+        print(f"\nFATAL: Error opening serial port {port}: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\nAn unexpected error occurred: {e}")
+        sys.exit(1)
+    finally:
+        if 'ser' in locals() and ser.is_open:
+            ser.close()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Comprehensive and interactive test suite for RaveController."
+    )
+    parser.add_argument(
+        "--port", required=True, help="Serial port (e.g., COM7 or /dev/ttyACM0)"
+    )
+    # ... (rest of the argument parser is unchanged)
+    parser.add_argument(
+        "--baud", type=int, default=BAUD, help=f"Baud rate (default: {BAUD})"
+    )
+    parser.add_argument(
+        "--json-config",
+        default="test_config.json",
+        help="Path to the JSON config file to upload.",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=['automatic', 'manual'],
+        default='automatic',
+        help="Set parameter testing mode: 'automatic' for silent verification, 'manual' for visual confirmation."
+    )
+    args = parser.parse_args()
+    run_all_tests(args.port, args.baud, args.json_config, args.mode)

@@ -1,19 +1,18 @@
 #include "SerialCommandHandler.h"
 #include "globals.h"
 #include "EffectLookup.h"
-#include "Processes.h" // Note: This was in your original file list
+#include "Processes.h" 
 #include <ArduinoJson.h>
 
 // --- Helper Functions to Parse Commands ---
 
-// Gets the nth word from a space-separated string
 String SerialCommandHandler::getWord(const String& text, int index) {
     int current_word = 0;
     int start_pos = 0;
     while (current_word < index) {
         start_pos = text.indexOf(' ', start_pos);
         if (start_pos == -1) return "";
-        start_pos++; // Move past the space
+        start_pos++; 
         current_word++;
     }
     int end_pos = text.indexOf(' ', start_pos);
@@ -23,7 +22,6 @@ String SerialCommandHandler::getWord(const String& text, int index) {
     return text.substring(start_pos, end_pos);
 }
 
-// Gets the rest of the command string after the command itself
 String SerialCommandHandler::getRestOfCommand(const String& text, int startIndex) {
     int pos = text.indexOf(' ');
     if (pos == -1 || pos >= (int)text.length() - 1) return "";
@@ -42,19 +40,17 @@ void SerialCommandHandler::handleCommand(const String& command) {
     } else if (cmd.equalsIgnoreCase("getstatus")) {
         handleGetStatus();
     } else if (cmd.equalsIgnoreCase("getconfig")) {
-        // Now calls global function
         Serial.println(loadConfig());
     } else if (cmd.equalsIgnoreCase("saveconfig")) {
-        // Now calls global function
         if (saveConfig()) {
             Serial.println("OK: Config saved.");
         } else {
             Serial.println("ERR: Failed to save config.");
         }
     } else if (cmd.equalsIgnoreCase("setledcount")) {
-        // Now calls global function
         setLedCount(args.toInt());
     } else if (cmd.equalsIgnoreCase("getledcount")) {
+        // --- FIX: Call the correct handler ---
         handleGetLedCount();
     } else if (cmd.equalsIgnoreCase("listsegments")) {
         handleListSegments();
@@ -69,7 +65,6 @@ void SerialCommandHandler::handleCommand(const String& command) {
     } else if (cmd.equalsIgnoreCase("setparameter") || cmd.equalsIgnoreCase("setparam")) {
         handleSetParameter(args);
     } else if (cmd.equalsIgnoreCase("batchconfig")) {
-        // Now calls global function
         handleBatchConfigJson(args);
     } else {
         Serial.print("ERR: Unknown command '");
@@ -182,15 +177,11 @@ void SerialCommandHandler::handleSetEffect(const String& args) {
         }
         seg->activeEffect = newEffect;
 
-        // --- FIX: Force an immediate update and show ---
-        // This renders the first frame of the new effect right away,
-        // synchronizing the hardware with the test script.
         if (strip) {
-            seg->update(); // Call the new effect's update function
-            strip->show(); // Push the new colors to the LEDs
-            delay(10);     // Add a tiny delay to ensure the bus is ready for the next command
+            seg->update(); 
+            strip->show(); 
+            delay(10);     
         }
-        // --- End of Fix ---
 
         Serial.println("OK: Effect set.");
     } else {
