@@ -363,13 +363,33 @@ void BinaryCommandHandler::handleBatchConfig(const uint8_t *payload, size_t len)
 
 void BinaryCommandHandler::handleGetEffectInfo(const uint8_t *payload, size_t len)
 {
-    Serial.println("CMD: Get Effect Info");
-    if (len < 1)
+    // Serial.println("CMD: Get Effect Info");
+    // if (len < 1)
+    // {
+    //     Serial.println("ERR: Missing effect ID for GET_EFFECT_INFO");
+    //     return;
+    // }
+    // uint8_t effectIndex = payload[0];
+    // Serial.print("Requested info for effect index: ");
+    // Serial.println(effectIndex);
+
+    // const char *effectName = getEffectNameFromId(effectIndex);
+
+    // if (!effectName || !strip || strip->getSegments().empty())
+    // {
+    //     Serial.print("ERR: Invalid effect index, strip not initialized, or no segments. Index: ");
+    //     Serial.println(effectIndex);
+    //     return;
+    // }
+        Serial.println("CMD: Get Effect Info");
+    if (len < 2) // Changed len check to 2, because we expect segment index and effect index
     {
-        Serial.println("ERR: Missing effect ID for GET_EFFECT_INFO");
+        Serial.println("ERR: Missing segment ID or effect ID for GET_EFFECT_INFO");
         return;
     }
-    uint8_t effectIndex = payload[0];
+    // uint8_t segmentIndex = payload[0]; // If you need to use segmentIndex, you can extract it here
+    uint8_t effectIndex = payload[1]; // CORRECTED: Get effect index from payload[1]
+
     Serial.print("Requested info for effect index: ");
     Serial.println(effectIndex);
 
