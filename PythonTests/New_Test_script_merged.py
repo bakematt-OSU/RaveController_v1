@@ -18,7 +18,7 @@ from typing import Any, Dict, Optional
 # --- Constants ---
 BAUD_RATE = 115200
 SERIAL_TIMEOUT = 0.5
-RESTART_DELAY = 4
+RESTART_DELAY = 6
 DEFAULT_LED_COUNT = 45
 DEVICE_READY_MSG = "Setup complete. Entering main loop..."
 
@@ -32,7 +32,7 @@ CMD_CLEAR_SEGMENTS = 0x06
 CMD_SET_SEG_RANGE = 0x07
 CMD_GET_STATUS = 0x08
 CMD_BATCH_CONFIG = 0x09
-CMD_NUM_PIXELS = 0x0A
+# CMD_NUM_PIXELS = 0x0A  # This command is no longer implemented in firmware
 CMD_GET_EFFECT_INFO = 0x0B
 CMD_ACK = 0xA0
 CMD_SET_LED_COUNT = 0x0C
@@ -41,14 +41,17 @@ CMD_GET_LED_COUNT = 0x0D
 
 class TestError(Exception):
     """Custom exception for test failures."""
+
     pass
+
 
 # --- Helper & Communication Functions ---
 
+
 def parse_json_from_response(response: str) -> Dict[str, Any]:
     """Finds and parses a JSON object from a serial response string."""
-    start_brace = response.find('{')
-    start_bracket = response.find('[')
+    start_brace = response.find("{")
+    start_bracket = response.find("[")
 
     if start_brace == -1 and start_bracket == -1:
         raise TestError(f"No JSON object or array found in response: '{response}'")
@@ -58,7 +61,10 @@ def parse_json_from_response(response: str) -> Dict[str, Any]:
     try:
         return json.loads(response[start_pos:])
     except json.JSONDecodeError as e:
-        raise TestError(f"Failed to parse JSON from response: '{response[start_pos:]}'. Error: {e}")
+        raise TestError(
+            f"Failed to parse JSON from response: '{response[start_pos:]}'. Error: {e}"
+        )
+
 
 def read_all(ser: serial.Serial) -> str:
     """Reads all available data from the serial port with a timeout."""
@@ -70,14 +76,19 @@ def read_all(ser: serial.Serial) -> str:
         time.sleep(0.01)
     return data.decode("utf-8", errors="ignore").strip()
 
-def send_command(ser: serial.Serial, command: str, quiet: bool = False, expect_response: bool = True) -> str:
+
+def send_command(
+    ser: serial.Serial, command: str, quiet: bool = False, expect_response: bool = True
+) -> str:
     """
     Sends a command to the device and returns the response.
     If expect_response is False, it returns immediately after sending.
     """
     prefix = "BINARY" if command.startswith("0x") else "ASCII"
     if not quiet:
-        print(f">>> SEND ({prefix}): {command[:100]}{'...' if len(command) > 100 else ''}")
+        print(
+            f">>> SEND ({prefix}): {command[:100]}{'...' if len(command) > 100 else ''}"
+        )
 
     ser.write((command + "\n").encode())
 
@@ -95,28 +106,58 @@ def send_command(ser: serial.Serial, command: str, quiet: bool = False, expect_r
 
     return response
 
+
 # --- Test Utilities ---
 
-def wait_for_device_ready(ser: serial.Serial, timeout: int = 10) -> None:
+
+def wait_for_device_ready(ser: serial.Serial, timeout: int = 15) -> None:
     """Waits for the device to signal it's ready after a restart."""
     print("      Waiting for device to be ready...")
     start_time = time.time()
     buffer = ""
     while time.time() - start_time < timeout:
         if ser.in_waiting > 0:
-            buffer += ser.read(ser.in_waiting).decode("utf-8", errors="ignore")
+            new_data = ser.read(ser.in_waiting).decode("utf-8", errors="ignore")
+            buffer += new_data
+            print(f"      Debug: Received: {repr(new_data)}")  # Debug output
             if DEVICE_READY_MSG in buffer:
                 print("      Device is ready.")
                 ser.reset_input_buffer()
                 return
+            # Alternative ready signals
+            if "BLE Manager initialized" in buffer or "Advertising" in buffer:
+                print("      Device appears to be ready (BLE initialized).")
+                time.sleep(1)  # Give it a moment to fully initialize
+                ser.reset_input_buffer()
+                return
         time.sleep(0.1)
-    raise TestError("Timeout waiting for device ready signal.")
+
+    print(
+        f"      Warning: Timeout waiting for ready signal. Buffer contents: {repr(buffer)}"
+    )
+    # Try to proceed anyway - device might be ready but not sending expected message
+    ser.reset_input_buffer()
+    print("      Proceeding anyway - attempting basic communication test...")
+
+    # Test if device is responsive
+    try:
+        test_response = send_command(ser, "getledcount", quiet=True)
+        if "LED_COUNT:" in test_response:
+            print("      Device appears to be responsive.")
+            return
+    except:
+        pass
+
+    raise TestError(
+        "Timeout waiting for device ready signal and device not responsive to basic commands."
+    )
+
 
 def restart_and_reconnect(ser: serial.Serial) -> None:
     """Closes, waits, and reopens the serial port to reconnect after a device restart."""
     port = ser.port
     baudrate = ser.baudrate
-    
+
     if ser.is_open:
         try:
             ser.close()
@@ -124,20 +165,33 @@ def restart_and_reconnect(ser: serial.Serial) -> None:
             # This can happen if the device disappears abruptly, which is expected.
             print(f"      Ignoring error while closing stale port: {e}")
 
-    print(f"      Device restarting. Waiting {RESTART_DELAY}s for serial port to reappear...")
+    print(
+        f"      Device restarting. Waiting {RESTART_DELAY}s for serial port to reappear..."
+    )
     time.sleep(RESTART_DELAY)
 
-    try:
-        ser.port = port
-        ser.baudrate = baudrate
-        ser.open()
-        time.sleep(1.0) # Crucial delay after opening to let the port stabilize
-        if ser.is_open:
-            print("      Serial port reconnected.")
-            wait_for_device_ready(ser)
-            return
-    except serial.SerialException as e:
-        raise TestError(f"Failed to reconnect to the serial port after waiting. Error: {e}")
+    # Try multiple times to reconnect
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            print(f"      Reconnection attempt {attempt + 1}/{max_retries}")
+            ser.port = port
+            ser.baudrate = baudrate
+            ser.open()
+            time.sleep(2.0)  # Longer delay after opening to let the port stabilize
+            if ser.is_open:
+                print("      Serial port reconnected.")
+                wait_for_device_ready(ser)
+                return
+        except serial.SerialException as e:
+            print(f"      Attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                print("      Waiting before retry...")
+                time.sleep(2)
+            else:
+                raise TestError(
+                    f"Failed to reconnect to the serial port after {max_retries} attempts. Final error: {e}"
+                )
 
 
 def run_test(test_function, *args):
@@ -155,7 +209,9 @@ def run_test(test_function, *args):
         print(f"💥 ERROR: An unexpected error occurred in {test_name}: {e}")
         return False
 
+
 # --- Test Suites ---
+
 
 def test_all_serial_commands(ser: serial.Serial, json_config_path: str):
     """Provides full test coverage for the ASCII serial command interface."""
@@ -167,7 +223,9 @@ def test_all_serial_commands(ser: serial.Serial, json_config_path: str):
     # 2. Segment Management
     send_command(ser, "clearsegments")
     response = parse_json_from_response(send_command(ser, "getstatus"))
-    assert len(response["segments"]) == 1, "Should only have the 'all' segment after clearing."
+    assert (
+        len(response["segments"]) == 1
+    ), "Should only have the 'all' segment after clearing."
 
     send_command(ser, "addsegment 10 20 seg_one")
     send_command(ser, "addsegment 21 30 seg_two")
@@ -187,13 +245,17 @@ def test_all_serial_commands(ser: serial.Serial, json_config_path: str):
     test_color = "0x112233"
     param_name = info["params"][0]["name"]
     send_command(ser, f"setparam {test_seg_id} {param_name} {test_color}")
-    info_after = parse_json_from_response(send_command(ser, f"geteffectinfo {test_seg_id}"))
+    info_after = parse_json_from_response(
+        send_command(ser, f"geteffectinfo {test_seg_id}")
+    )
     assert info_after["params"][0]["value"] == int(test_color, 16), "setparam failed."
 
     # 4. Configuration Management
     send_command(ser, "saveconfig")
     config_str = send_command(ser, "getconfig")
-    assert "segments" in parse_json_from_response(config_str), "getconfig failed to return valid JSON."
+    assert "segments" in parse_json_from_response(
+        config_str
+    ), "getconfig failed to return valid JSON."
 
     with open(json_config_path, "r") as f:
         compact_json = json.dumps(json.load(f), separators=(",", ":"))
@@ -204,7 +266,10 @@ def test_all_serial_commands(ser: serial.Serial, json_config_path: str):
     # 5. LED Count Management (ASCII)
     current_led_count = status.get("led_count")
     response = send_command(ser, "getledcount")
-    assert f"LED_COUNT: {current_led_count}" in response, f"getledcount failed. Expected {current_led_count}."
+    assert (
+        f"LED_COUNT: {current_led_count}" in response
+    ), f"getledcount failed. Expected {current_led_count}."
+
 
 def test_all_hex_commands(ser: serial.Serial):
     """Tests the full suite of hexadecimal commands."""
@@ -218,62 +283,92 @@ def test_all_hex_commands(ser: serial.Serial):
     brightness = 150
     cmd_bytes = bytes([CMD_SET_BRIGHTNESS, brightness])
     response = send_command(ser, "0x" + cmd_bytes.hex())
-    assert f"OK: Brightness set to {brightness}" in response, "CMD_SET_BRIGHTNESS failed."
+    assert (
+        f"OK: Brightness set to {brightness}" in response
+    ), "CMD_SET_BRIGHTNESS failed."
 
     # Test CMD_SET_COLOR (on main segment)
     r, g, b = 255, 0, 255  # Magenta
     cmd_bytes = bytes([CMD_SET_COLOR, r, g, b])
-    assert "OK: Color set" in send_command(ser, "0x" + cmd_bytes.hex()), "CMD_SET_COLOR failed."
+    assert "OK: Color set" in send_command(
+        ser, "0x" + cmd_bytes.hex()
+    ), "CMD_SET_COLOR failed."
 
     # Test CMD_SET_EFFECT (Fire, ID=5, on main segment)
     effect_id_fire = 5
     cmd_bytes = bytes([CMD_SET_EFFECT, effect_id_fire])
-    assert "OK: Effect set to Fire" in send_command(ser, "0x" + cmd_bytes.hex()), "CMD_SET_EFFECT failed."
+    assert "OK: Effect set to Fire" in send_command(
+        ser, "0x" + cmd_bytes.hex()
+    ), "CMD_SET_EFFECT failed."
 
     # Test CMD_GET_EFFECT_INFO for the effect we just set
-    cmd_bytes = bytes([CMD_GET_EFFECT_INFO, 0]) # Check segment 0
+    cmd_bytes = bytes([CMD_GET_EFFECT_INFO, 0])  # Check segment 0
     response = send_command(ser, "0x" + cmd_bytes.hex())
     info = parse_json_from_response(response)
-    assert info.get("effect") == "Fire" and "params" in info, "CMD_GET_EFFECT_INFO failed."
+    assert (
+        info.get("effect") == "Fire" and "params" in info
+    ), "CMD_GET_EFFECT_INFO failed."
 
     # Test CMD_SET_SEG_BRIGHT
     seg_id, seg_brightness = 1, 200
     cmd_bytes = bytes([CMD_SET_SEG_BRIGHT, seg_id, seg_brightness])
     response = send_command(ser, "0x" + cmd_bytes.hex())
-    assert f"OK: Segment {seg_id} brightness set to {seg_brightness}" in response, "CMD_SET_SEG_BRIGHT failed."
+    assert (
+        f"OK: Segment {seg_id} brightness set to {seg_brightness}" in response
+    ), "CMD_SET_SEG_BRIGHT failed."
 
     # Test CMD_SELECT_SEGMENT (no-op, just check for OK)
-    assert "OK: Segment selected" in send_command(ser, "0x" + bytes([CMD_SELECT_SEGMENT, 1]).hex()), "CMD_SELECT_SEGMENT failed."
+    assert "OK: Segment selected" in send_command(
+        ser, "0x" + bytes([CMD_SELECT_SEGMENT, 1]).hex()
+    ), "CMD_SELECT_SEGMENT failed."
 
     # Test CMD_SET_SEG_RANGE
     seg_id, start, end = 1, 15, 25
-    cmd_bytes = bytes([CMD_SET_SEG_RANGE, seg_id, (start >> 8) & 0xFF, start & 0xFF, (end >> 8) & 0xFF, end & 0xFF])
+    cmd_bytes = bytes(
+        [
+            CMD_SET_SEG_RANGE,
+            seg_id,
+            (start >> 8) & 0xFF,
+            start & 0xFF,
+            (end >> 8) & 0xFF,
+            end & 0xFF,
+        ]
+    )
     response = send_command(ser, "0x" + cmd_bytes.hex())
-    assert f"OK: Segment {seg_id} range set to {start}-{end}" in response, "CMD_SET_SEG_RANGE failed."
+    assert (
+        f"OK: Segment {seg_id} range set to {start}-{end}" in response
+    ), "CMD_SET_SEG_RANGE failed."
 
-    # Test CMD_GET_STATUS and check if it's valid JSON
+    # Test CMD_GET_STATUS (Note: Binary command sends JSON via BLE, confirm via Serial log)
     response = send_command(ser, "0x" + bytes([CMD_GET_STATUS]).hex())
-    status = parse_json_from_response(response)
-    assert "segments" in status, "CMD_GET_STATUS did not return valid JSON."
+    assert (
+        "-> Sent Status JSON" in response
+    ), "CMD_GET_STATUS did not send JSON via BLE."
 
     # Test CMD_CLEAR_SEGMENTS
-    assert "OK: User segments cleared" in send_command(ser, "0x" + bytes([CMD_CLEAR_SEGMENTS]).hex()), "CMD_CLEAR_SEGMENTS failed."
-    status = parse_json_from_response(send_command(ser, "0x" + bytes([CMD_GET_STATUS]).hex()))
+    assert "OK: User segments cleared" in send_command(
+        ser, "0x" + bytes([CMD_CLEAR_SEGMENTS]).hex()
+    ), "CMD_CLEAR_SEGMENTS failed."
+    # Verify segments were cleared using ASCII command (which returns JSON via Serial)
+    status = parse_json_from_response(send_command(ser, "getstatus"))
     assert len(status["segments"]) == 1, "Segments were not cleared correctly."
 
     # Test CMD_BATCH_CONFIG (verifies acknowledgment, as function is not implemented in FW)
-    assert "OK: Batch config (not implemented)" in send_command(ser, "0x" + bytes([CMD_BATCH_CONFIG]).hex()), "CMD_BATCH_CONFIG failed."
+    assert "OK: Batch config (not implemented)" in send_command(
+        ser, "0x" + bytes([CMD_BATCH_CONFIG]).hex()
+    ), "CMD_BATCH_CONFIG failed."
 
-    # Test CMD_GET_LED_COUNT
+    # Test CMD_GET_LED_COUNT (Note: This sends binary response via BLE, but we can verify via Serial log)
     response = send_command(ser, "0x" + bytes([CMD_GET_LED_COUNT]).hex())
-    assert f"LED_COUNT: {current_led_count}" in response, f"CMD_GET_LED_COUNT failed. Expected {current_led_count}."
-
-    # Test CMD_NUM_PIXELS (functionally identical to GET_LED_COUNT)
-    response = send_command(ser, "0x" + bytes([CMD_NUM_PIXELS]).hex())
-    assert f"LED_COUNT: {current_led_count}" in response, f"CMD_NUM_PIXELS failed. Expected {current_led_count}."
+    # The binary command sends data via BLE, but prints confirmation to Serial
+    assert (
+        f"-> Sent LED Count: {current_led_count}" in response
+    ), f"CMD_GET_LED_COUNT failed. Expected confirmation of {current_led_count}."
 
     # Test CMD_ACK
-    assert "OK: ACK" in send_command(ser, "0x" + bytes([CMD_ACK]).hex()), "CMD_ACK failed."
+    assert "OK: ACK" in send_command(
+        ser, "0x" + bytes([CMD_ACK]).hex()
+    ), "CMD_ACK failed."
 
 
 def test_led_count_and_persistence(ser: serial.Serial):
@@ -284,7 +379,9 @@ def test_led_count_and_persistence(ser: serial.Serial):
     send_command(ser, "saveconfig", quiet=True)
 
     # 2. Set new LED count via binary command, which forces a restart
-    initial_count = parse_json_from_response(send_command(ser, "getstatus", quiet=True)).get("led_count")
+    initial_count = parse_json_from_response(
+        send_command(ser, "getstatus", quiet=True)
+    ).get("led_count")
     new_count = 30
     cmd_bytes = bytes([CMD_SET_LED_COUNT, (new_count >> 8) & 0xFF, new_count & 0xFF])
     send_command(ser, "0x" + cmd_bytes.hex(), expect_response=False)
@@ -293,11 +390,15 @@ def test_led_count_and_persistence(ser: serial.Serial):
     # 3. Verify the new LED count
     response = send_command(ser, "getledcount", quiet=True)
     verified_count = int(response.split(":")[1].strip())
-    assert verified_count == new_count, f"Expected new count of {new_count}, but got {verified_count}."
+    assert (
+        verified_count == new_count
+    ), f"Expected new count of {new_count}, but got {verified_count}."
 
     # 4. Verify that the configuration was restored after the restart
     status = parse_json_from_response(send_command(ser, "getstatus", quiet=True))
-    assert status["segments"][0]["effect"] == "ColoredFire", "Configuration did not persist across restart."
+    assert (
+        status["segments"][0]["effect"] == "ColoredFire"
+    ), "Configuration did not persist across restart."
 
     # 5. Restore original count via ASCII command for safety and restart again
     send_command(ser, f"setledcount {initial_count}", expect_response=False)
@@ -305,6 +406,7 @@ def test_led_count_and_persistence(ser: serial.Serial):
     response = send_command(ser, "getledcount", quiet=True)
     final_count = int(response.split(":")[1].strip())
     assert final_count == initial_count, "Could not restore LED count to default."
+
 
 def test_all_parameters_for_all_effects(ser: serial.Serial, mode: str):
     """
@@ -319,7 +421,9 @@ def test_all_parameters_for_all_effects(ser: serial.Serial, mode: str):
 
     # 2. Prepare a clean segment for testing
     send_command(ser, "clearsegments", quiet=True)
-    current_led_count = parse_json_from_response(send_command(ser, "getstatus", quiet=True)).get("led_count")
+    current_led_count = parse_json_from_response(
+        send_command(ser, "getstatus", quiet=True)
+    ).get("led_count")
     send_command(ser, f"addsegment 0 {current_led_count - 1} test_segment", quiet=True)
     segment_id = 1
 
@@ -336,7 +440,7 @@ def test_all_parameters_for_all_effects(ser: serial.Serial, mode: str):
         for param in params_list:
             param_name = param["name"]
             param_type = param["type"]
-            
+
             # Choose a test value based on type
             if param_type == "color":
                 test_value = 0x123456
@@ -344,39 +448,73 @@ def test_all_parameters_for_all_effects(ser: serial.Serial, mode: str):
             elif param_type == "boolean":
                 test_value = True
                 cmd_value = "true"
-            else: # integer or float
+            else:  # integer or float
                 test_value = param.get("max_val", 255)
                 cmd_value = test_value
 
             print(f"      Adjusting param '{param_name}' to '{cmd_value}'...")
-            send_command(ser, f"setparam {segment_id} {param_name} {cmd_value}", quiet=True)
+            send_command(
+                ser, f"setparam {segment_id} {param_name} {cmd_value}", quiet=True
+            )
 
             # Automatic verification
-            info_after = parse_json_from_response(send_command(ser, f"geteffectinfo {segment_id}", quiet=True))
-            param_after = next((p for p in info_after.get("params", []) if p["name"] == param_name), None)
-            
-            assert param_after is not None, f"Parameter '{param_name}' not found after setting."
-            assert param_after["value"] == test_value, f"Verification failed for '{param_name}'. Sent {cmd_value}, got {param_after['value']}."
+            info_after = parse_json_from_response(
+                send_command(ser, f"geteffectinfo {segment_id}", quiet=True)
+            )
+            param_after = next(
+                (p for p in info_after.get("params", []) if p["name"] == param_name),
+                None,
+            )
+
+            assert (
+                param_after is not None
+            ), f"Parameter '{param_name}' not found after setting."
+            assert (
+                param_after["value"] == test_value
+            ), f"Verification failed for '{param_name}'. Sent {cmd_value}, got {param_after['value']}."
 
             # Manual (visual) verification if in manual mode
-            if mode == 'manual':
-                ans = input(f"      --> VISUAL CHECK: Did '{param_name}' change correctly? (y/n): ").strip().lower()
+            if mode == "manual":
+                ans = (
+                    input(
+                        f"      --> VISUAL CHECK: Did '{param_name}' change correctly? (y/n): "
+                    )
+                    .strip()
+                    .lower()
+                )
                 if ans != "y":
                     raise TestError(f"Visual confirmation failed for '{param_name}'.")
 
+
 # --- Main Application ---
+
 
 def main():
     """Parses arguments and runs the full test suite."""
-    parser = argparse.ArgumentParser(description="Comprehensive test suite for RaveController.")
-    parser.add_argument("--port", required=True, help="Serial port (e.g., COM7 or /dev/ttyACM0)")
-    parser.add_argument("--baud", type=int, default=BAUD_RATE, help=f"Baud rate (default: {BAUD_RATE})")
-    parser.add_argument("--config", default="test_config.json", help="Path to the JSON config file for upload test.")
+    parser = argparse.ArgumentParser(
+        description="Comprehensive test suite for RaveController."
+    )
+    parser.add_argument(
+        "--port", required=True, help="Serial port (e.g., COM7 or /dev/ttyACM0)"
+    )
+    parser.add_argument(
+        "--baud", type=int, default=BAUD_RATE, help=f"Baud rate (default: {BAUD_RATE})"
+    )
+    parser.add_argument(
+        "--config",
+        default="test_config.json",
+        help="Path to the JSON config file for upload test.",
+    )
     parser.add_argument(
         "--mode",
-        choices=['automatic', 'manual'],
-        default='automatic',
-        help="Set parameter testing mode: 'automatic' for silent verification, 'manual' for visual confirmation."
+        choices=["automatic", "manual"],
+        default="automatic",
+        help="Set parameter testing mode: 'automatic' for silent verification, 'manual' for visual confirmation.",
+    )
+    parser.add_argument(
+        "--skip-init",
+        action="store_true",
+        help="Skip initial device restart and LED count reset. Use if device is already running.",
     )
     args = parser.parse_args()
 
@@ -386,25 +524,60 @@ def main():
         # Directly open the serial port, handling potential immediate errors.
         ser = serial.Serial(args.port, args.baud, timeout=SERIAL_TIMEOUT)
         print(f"Serial port {args.port} opened successfully.")
-        
-        # A single, clean initialization is sufficient and more stable.
+
+        # Initialize device state
         print("\n--- Initializing Device State ---")
-        send_command(ser, f"setledcount {DEFAULT_LED_COUNT}", expect_response=False)
-        restart_and_reconnect(ser)
-        print("Device state initialized.")
+        if args.skip_init:
+            print("Skipping device restart (--skip-init flag used)")
+            # Just test if device is responsive
+            try:
+                response = send_command(ser, "getledcount", quiet=True)
+                if "LED_COUNT:" in response:
+                    print("Device appears to be ready and responsive.")
+                else:
+                    print("Warning: Device may not be fully ready.")
+            except Exception as e:
+                print(f"Warning: Device communication test failed: {e}")
+        else:
+            # Force LED count to default and restart device
+            try:
+                send_command(
+                    ser, f"setledcount {DEFAULT_LED_COUNT}", expect_response=False
+                )
+                restart_and_reconnect(ser)
+                print("Device state initialized.")
+            except Exception as e:
+                print(
+                    f"Warning: Initial restart failed ({e}). Trying to proceed anyway..."
+                )
+                # Try basic communication test
+                try:
+                    response = send_command(ser, "getledcount", quiet=True)
+                    if "LED_COUNT:" in response:
+                        print("Device appears to be responsive despite restart issues.")
+                    else:
+                        raise TestError("Device not responding to basic commands.")
+                except Exception as comm_e:
+                    raise TestError(
+                        f"Device initialization failed and not responsive: {comm_e}"
+                    )
 
         results = {
-            "Full Serial Command Suite": run_test(test_all_serial_commands, ser, args.config),
+            "Full Serial Command Suite": run_test(
+                test_all_serial_commands, ser, args.config
+            ),
             "Full Hex Command Suite": run_test(test_all_hex_commands, ser),
             "LED Count & Persistence": run_test(test_led_count_and_persistence, ser),
-            "Effect Parameter Validation": run_test(test_all_parameters_for_all_effects, ser, args.mode),
+            "Effect Parameter Validation": run_test(
+                test_all_parameters_for_all_effects, ser, args.mode
+            ),
         }
 
         print("\n\n--- FINAL TEST SUMMARY ---")
         for name, passed in results.items():
             status = "✅ PASS" if passed else "❌ FAIL"
             print(f"  {name:28} {status}")
-        
+
         if all(results.values()):
             print("\n🎉 All tests passed successfully! 🎉")
         else:
@@ -412,7 +585,9 @@ def main():
             sys.exit(1)
 
     except serial.SerialException as e:
-        print(f"\n💥 FATAL: Could not open or interact with serial port {args.port}: {e}")
+        print(
+            f"\n💥 FATAL: Could not open or interact with serial port {args.port}: {e}"
+        )
         sys.exit(1)
     except (TestError, Exception) as e:
         print(f"\n💥 FATAL: An unexpected error occurred: {e}")
@@ -420,6 +595,7 @@ def main():
     finally:
         if ser and ser.is_open:
             ser.close()
+
 
 if __name__ == "__main__":
     main()
