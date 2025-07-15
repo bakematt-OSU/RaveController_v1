@@ -1,4 +1,3 @@
-// src/BinaryCommandHandler.h
 #ifndef BINARY_COMMAND_HANDLER_H
 #define BINARY_COMMAND_HANDLER_H
 
@@ -33,12 +32,13 @@ private:
     void handleSetBrightness(const uint8_t* payload, size_t len);
     void handleSetSegmentBrightness(const uint8_t* payload, size_t len);
     void handleSelectSegment(const uint8_t* payload, size_t len);
-    void handleClearSegments(const uint8_t* payload, size_t len);
+    // FIX: This command has no payload, so it takes no arguments.
+    void handleClearSegments();
     void handleSetSegmentRange(const uint8_t* payload, size_t len);
     void handleGetStatus();
     void handleBatchConfig(const uint8_t* payload, size_t len);
-    void handleGetNumPixels();
-    void handleGetEffectInfo();
+    // FIX: This command's payload determines the segment, so it needs arguments.
+    void handleGetEffectInfo(const uint8_t* payload, size_t len);
     void handleAck();
     void handleSetLedCount(const uint8_t* payload, size_t len);
     void handleGetLedCount();

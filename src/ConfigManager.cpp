@@ -3,21 +3,20 @@
 #include <ArduinoJson.h>
 #include <LittleFS_Mbed_RP2040.h>
 #include "EffectLookup.h"
-#include "BLEManager.h" // <-- ADD THIS LINE
+#include "BLEManager.h"
 
 // --- External globals defined in main.cpp ---
 extern PixelStrip *strip;
 extern uint16_t LED_COUNT;
 extern const char *STATE_FILE;
-extern BLEManager &bleManager; // Now the compiler knows what this is
+extern BLEManager &bleManager;
 
-// --- FIX: Updated to save the complete strip configuration ---
+// --- Saves the complete strip configuration ---
 bool saveConfig()
 {
-    StaticJsonDocument<1024> doc; // Increased size to hold more data
+    StaticJsonDocument<1024> doc; 
     doc["led_count"] = LED_COUNT;
 
-    // Create a JSON array to hold the segment configurations
     JsonArray segments = doc.createNestedArray("segments");
     if (strip)
     {
@@ -29,7 +28,6 @@ bool saveConfig()
             segObj["startLed"] = s->startIndex();
             segObj["endLed"] = s->endIndex();
             segObj["brightness"] = s->getBrightness();
-            // Store the name of the effect, or "None" if nothing is active
             segObj["effect"] = s->activeEffect ? s->activeEffect->getName() : "None";
         }
     }
@@ -41,17 +39,17 @@ bool saveConfig()
         serializeJson(doc, output);
         fprintf(file, "%s", output.c_str());
         fclose(file);
-        Serial.println("Configuration saved.");
+        Serial.println("OK: Config saved."); // Use a consistent OK message
         return true;
     }
     else
     {
-        Serial.println("Failed to open state file for writing.");
+        Serial.println("ERR: Failed to open state file for writing.");
         return false;
     }
 }
 
-// Loads the configuration from the filesystem.
+// --- Loads the configuration from the filesystem ---
 String loadConfig()
 {
     FILE *file = fopen(STATE_FILE, "r");
@@ -68,18 +66,19 @@ String loadConfig()
 
         String json(buf);
         delete[] buf;
-
-        Serial.println("Configuration file loaded from FS.");
+        
+        // FIX: Removed the "Configuration file loaded" message to ensure
+        // that only the raw JSON is returned for clean parsing.
         return json;
     }
     else
     {
-        Serial.println("Could not find state file, using default configuration.");
+        // Return an empty string if the file doesn't exist.
         return "";
     }
 }
 
-// Sets a new LED count, saves it, and restarts the device.
+// --- Sets a new LED count, saves it, and restarts the device ---
 void setLedCount(uint16_t newSize)
 {
     if (newSize > 0 && newSize <= 4000)
@@ -91,15 +90,15 @@ void setLedCount(uint16_t newSize)
             Serial.print(newSize);
             Serial.println(". Restarting to apply changes.");
 
-            // --- FIX: Add a delay to ensure the file is written to flash ---
-            delay(200); // Give the filesystem time to commit the file
-            // --- End of Fix ---
-
+            // FIX: Add a sufficient delay to ensure the serial message is sent
+            // and the filesystem commits the file before restarting. This
+            // helps prevent serial port errors on the host computer.
+            delay(200); 
+            
             NVIC_SystemReset();
         }
         else
         {
-            // This response is more for BLE, but good to have
             bleManager.sendMessage("{\"error\":\"SAVE_CONFIG_FAILED\"}");
         }
     }
@@ -109,7 +108,7 @@ void setLedCount(uint16_t newSize)
     }
 }
 
-// Processes a JSON string to configure segments and effects.
+// --- Processes a JSON string to configure segments and effects ---
 void handleBatchConfigJson(const String &json)
 {
     StaticJsonDocument<1024> doc;
@@ -117,7 +116,7 @@ void handleBatchConfigJson(const String &json)
 
     if (error)
     {
-        Serial.print("handleBatchConfig JSON parse error: ");
+        Serial.print("ERR: handleBatchConfig JSON parse error: ");
         Serial.println(error.c_str());
         bleManager.sendMessage("{\"error\":\"JSON_PARSE_ERROR\"}");
         return;
@@ -153,7 +152,7 @@ void handleBatchConfigJson(const String &json)
             newSeg->activeEffect = createEffectByName(effectNameStr, newSeg);
         }
         strip->show();
-        Serial.println("Batch configuration applied.");
+        Serial.println("OK: Batch configuration applied.");
         bleManager.sendMessage("{\"status\":\"OK\"}");
     }
 }

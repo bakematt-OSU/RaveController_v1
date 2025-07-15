@@ -18,7 +18,7 @@ from typing import Any, Dict, Optional
 # --- Constants ---
 BAUD_RATE = 115200
 SERIAL_TIMEOUT = 0.5
-RESTART_DELAY = 5 # Increased delay for OS to recognize the device
+RESTART_DELAY = 4
 DEFAULT_LED_COUNT = 45
 DEVICE_READY_MSG = "Setup complete. Entering main loop..."
 
@@ -70,13 +70,20 @@ def read_all(ser: serial.Serial) -> str:
         time.sleep(0.01)
     return data.decode("utf-8", errors="ignore").strip()
 
-def send_command(ser: serial.Serial, command: str, quiet: bool = False) -> str:
-    """Sends a command to the device and returns the response."""
+def send_command(ser: serial.Serial, command: str, quiet: bool = False, expect_response: bool = True) -> str:
+    """
+    Sends a command to the device and returns the response.
+    If expect_response is False, it returns immediately after sending.
+    """
     prefix = "BINARY" if command.startswith("0x") else "ASCII"
     if not quiet:
         print(f">>> SEND ({prefix}): {command[:100]}{'...' if len(command) > 100 else ''}")
 
     ser.write((command + "\n").encode())
+
+    if not expect_response:
+        return ""
+
     time.sleep(SERIAL_TIMEOUT)
     response = read_all(ser)
 
@@ -111,29 +118,26 @@ def restart_and_reconnect(ser: serial.Serial) -> None:
     baudrate = ser.baudrate
     
     if ser.is_open:
-        ser.flush()
-        ser.close()
-    
-    print("      Device restarting. Waiting for serial port to reappear...")
+        try:
+            ser.close()
+        except serial.SerialException as e:
+            # This can happen if the device disappears abruptly, which is expected.
+            print(f"      Ignoring error while closing stale port: {e}")
+
+    print(f"      Device restarting. Waiting {RESTART_DELAY}s for serial port to reappear...")
     time.sleep(RESTART_DELAY)
 
-    # FIX: This robust retry loop is the key to solving the PermissionError.
-    # It gives the OS time to make the COM port available again after reboot.
-    for i in range(10): # Retry for up to 10 seconds
-        try:
-            ser.port = port
-            ser.baudrate = baudrate
-            ser.open()
-            time.sleep(1.0) # Crucial delay after opening to let the port stabilize
-            if ser.is_open:
-                print("      Serial port reconnected.")
-                wait_for_device_ready(ser)
-                return
-        except serial.SerialException as e:
-            print(f"      Reconnect attempt {i+1} failed. Retrying in 1 second...")
-            time.sleep(1)
-            
-    raise TestError("Failed to reconnect to the serial port after multiple attempts.")
+    try:
+        ser.port = port
+        ser.baudrate = baudrate
+        ser.open()
+        time.sleep(1.0) # Crucial delay after opening to let the port stabilize
+        if ser.is_open:
+            print("      Serial port reconnected.")
+            wait_for_device_ready(ser)
+            return
+    except serial.SerialException as e:
+        raise TestError(f"Failed to reconnect to the serial port after waiting. Error: {e}")
 
 
 def run_test(test_function, *args):
@@ -283,7 +287,7 @@ def test_led_count_and_persistence(ser: serial.Serial):
     initial_count = parse_json_from_response(send_command(ser, "getstatus", quiet=True)).get("led_count")
     new_count = 30
     cmd_bytes = bytes([CMD_SET_LED_COUNT, (new_count >> 8) & 0xFF, new_count & 0xFF])
-    send_command(ser, "0x" + cmd_bytes.hex())
+    send_command(ser, "0x" + cmd_bytes.hex(), expect_response=False)
     restart_and_reconnect(ser)
 
     # 3. Verify the new LED count
@@ -296,7 +300,7 @@ def test_led_count_and_persistence(ser: serial.Serial):
     assert status["segments"][0]["effect"] == "ColoredFire", "Configuration did not persist across restart."
 
     # 5. Restore original count via ASCII command for safety and restart again
-    send_command(ser, f"setledcount {initial_count}", quiet=True)
+    send_command(ser, f"setledcount {initial_count}", expect_response=False)
     restart_and_reconnect(ser)
     response = send_command(ser, "getledcount", quiet=True)
     final_count = int(response.split(":")[1].strip())
@@ -379,21 +383,13 @@ def main():
     ser = None
     try:
         print(f"Opening serial port {args.port} @ {args.baud} baud")
-        ser = serial.Serial()
-        ser.port = args.port
-        ser.baudrate = args.baud
-        ser.timeout = SERIAL_TIMEOUT
-        ser.open()
+        # Directly open the serial port, handling potential immediate errors.
+        ser = serial.Serial(args.port, args.baud, timeout=SERIAL_TIMEOUT)
+        print(f"Serial port {args.port} opened successfully.")
         
-        # Per user request, removed the initial wait for the "Setup complete" message.
-        # The script will now start immediately. Please ensure the device is running
-        # in its main loop before starting the test.
-        print("      Starting test script immediately.")
-        time.sleep(2) # A brief pause to ensure the serial port is fully open.
-        
-        # Ensure a clean state before starting tests
+        # A single, clean initialization is sufficient and more stable.
         print("\n--- Initializing Device State ---")
-        send_command(ser, f"setledcount {DEFAULT_LED_COUNT}")
+        send_command(ser, f"setledcount {DEFAULT_LED_COUNT}", expect_response=False)
         restart_and_reconnect(ser)
         print("Device state initialized.")
 
@@ -416,10 +412,10 @@ def main():
             sys.exit(1)
 
     except serial.SerialException as e:
-        print(f"\n💥 FATAL: Could not open serial port {args.port}: {e}")
+        print(f"\n💥 FATAL: Could not open or interact with serial port {args.port}: {e}")
         sys.exit(1)
     except (TestError, Exception) as e:
-        print(f"💥 FATAL: An unexpected error occurred: {e}")
+        print(f"\n💥 FATAL: An unexpected error occurred: {e}")
         sys.exit(1)
     finally:
         if ser and ser.is_open:
