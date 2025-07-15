@@ -9,44 +9,51 @@
 
 // --- UUIDs for the BLE Service and Characteristics ---
 // These MUST match the UUIDs in the Android app's BluetoothService.kt
-const char* SERVICE_UUID = "19B10000-E8F2-537E-4F6C-D104768A1214";
+const char *SERVICE_UUID = "19B10000-E8F2-537E-4F6C-D104768A1214";
 // TX is for transmitting FROM the Arduino TO the App (Notifications)
-const char* TX_CHAR_UUID = "19B10001-E8F2-537E-4F6C-D104768A1214";
+const char *TX_CHAR_UUID = "19B10001-E8F2-537E-4F6C-D104768A1214";
 // RX is for receiving data FROM the App (Writes)
-const char* RX_CHAR_UUID = "19B10002-E8F2-537E-4F6C-D104768A1214";
+const char *RX_CHAR_UUID = "19B10002-E8F2-537E-4F6C-D104768A1214";
 
 // --- Static C-Style Callback Functions ---
 // The BLE library requires simple C-style function pointers for callbacks.
 // These static functions will simply call the public methods on our singleton instance,
 // bridging the gap between the C-style API and our C++ class.
-static void staticOnWrite(BLEDevice central, BLECharacteristic characteristic) {
+static void staticOnWrite(BLEDevice central, BLECharacteristic characteristic)
+{
     BLEManager::getInstance().handleWrite(central, characteristic);
 }
-static void staticOnConnect(BLEDevice central) {
+static void staticOnConnect(BLEDevice central)
+{
     BLEManager::getInstance().handleConnect(central);
 }
-static void staticOnDisconnect(BLEDevice central) {
+static void staticOnDisconnect(BLEDevice central)
+{
     BLEManager::getInstance().handleDisconnect(central);
 }
 
-
 // --- Constructor ---
-BLEManager::BLEManager() :
-    bleService(SERVICE_UUID),
-    // TX characteristic is set to NOTIFY, so the Arduino can send data anytime.
-    txCharacteristic(TX_CHAR_UUID, BLENotify, 512), // Use a large size for notifications
-    // RX characteristic is set to WRITE, so the app can send commands.
-    rxCharacteristic(RX_CHAR_UUID, BLEWrite, 512), // Allow large writes for batch configs
-    commandHandlerCallback(nullptr)
-{}
+BLEManager::BLEManager() : bleService(SERVICE_UUID),
+                           // TX characteristic is set to NOTIFY, so the Arduino can send data anytime.
+                           txCharacteristic(TX_CHAR_UUID, BLENotify, 512), // Use a large size for notifications
+                           // RX characteristic is set to WRITE, so the app can send commands.
+                           rxCharacteristic(RX_CHAR_UUID, BLEWrite, 512), // Allow large writes for batch configs
+                           commandHandlerCallback(nullptr)
+{
+}
 
 // --- Public Methods ---
 
-void BLEManager::begin(const char* deviceName, CommandCallback callback) {
-    if (!BLE.begin()) {
+void BLEManager::begin(const char *deviceName, CommandCallback callback)
+{
+    Serial.println("BLE: Initializing BLE Manager...");
+    if (!BLE.begin())
+    {
         Serial.println("FATAL: Starting BLE failed!");
-        while (1); // Halt execution
+        while (1)
+            ; // Halt execution
     }
+    Serial.println("BLE: BLE stack started successfully");
 
     // Set the device name and advertise the service
     BLE.setLocalName(deviceName);
@@ -71,63 +78,149 @@ void BLEManager::begin(const char* deviceName, CommandCallback callback) {
     BLE.advertise();
     Serial.print("BLE Manager initialized. Advertising as '");
     Serial.print(deviceName);
-    Serial.println("'");
+    Serial.print("' with service UUID: ");
+    Serial.println(SERVICE_UUID);
+    Serial.println("BLE: Ready for connections");
 }
 
-void BLEManager::update() {
+void BLEManager::update()
+{
     // This is the only function that needs to be called in the main loop()
     // It processes all incoming BLE events.
     BLE.poll();
 }
 
-void BLEManager::sendMessage(const String& message) {
+void BLEManager::sendMessage(const String &message)
+{
     // This is a convenience wrapper to send a String.
     // It calls the byte array version.
-    sendMessage((const uint8_t*)message.c_str(), message.length());
+    Serial.print("BLE TX (String): '");
+    Serial.print(message);
+    Serial.print("' (");
+    Serial.print(message.length());
+    Serial.println(" bytes)");
+    sendMessage((const uint8_t *)message.c_str(), message.length());
 }
 
-void BLEManager::sendMessage(const uint8_t* data, size_t len) {
-    if (!isConnected()) return;
+void BLEManager::sendMessage(const uint8_t *data, size_t len)
+{
+    if (!isConnected())
+    {
+        Serial.println("BLE TX Failed: Not connected");
+        return;
+    }
+
+    Serial.print("BLE TX (Raw): ");
+    Serial.print(len);
+    Serial.print(" bytes - ");
+    for (size_t i = 0; i < min(len, (size_t)32); i++)
+    {
+        if (data[i] >= 32 && data[i] <= 126)
+        {
+            Serial.print((char)data[i]);
+        }
+        else
+        {
+            Serial.print("[0x");
+            Serial.print(data[i], HEX);
+            Serial.print("]");
+        }
+    }
+    if (len > 32)
+        Serial.print("...");
+    Serial.println();
 
     // BLE can only send a limited number of bytes at a time (the MTU, max transmission unit).
     // This loop breaks the data into chunks and sends them sequentially.
     // The Android side will be responsible for reassembling them.
     size_t offset = 0;
-    while (offset < len) {
+    int chunkCount = 0;
+    while (offset < len)
+    {
         size_t chunkSize = min((size_t)20, len - offset); // Use a safe, standard chunk size of 20
+        Serial.print("  Chunk ");
+        Serial.print(++chunkCount);
+        Serial.print(": ");
+        Serial.print(chunkSize);
+        Serial.println(" bytes");
         txCharacteristic.writeValue(data + offset, chunkSize);
         offset += chunkSize;
     }
+    Serial.print("BLE TX Complete: ");
+    Serial.print(chunkCount);
+    Serial.println(" chunks sent");
 }
 
-bool BLEManager::isConnected() {
+bool BLEManager::isConnected()
+{
     // BLE.connected() returns true if a central device is connected.
-    return BLE.connected();
+    bool connected = BLE.connected();
+    // Uncomment the line below for very verbose connection status debugging
+    // Serial.print("BLE Connection Status: "); Serial.println(connected ? "CONNECTED" : "DISCONNECTED");
+    return connected;
 }
 
 // --- Event Handlers ---
 
-void BLEManager::handleConnect(BLEDevice central) {
-    Serial.print("Connected to central: ");
-    Serial.println(central.address());
+void BLEManager::handleConnect(BLEDevice central)
+{
+    Serial.print("BLE CONNECT: Device connected - ");
+    Serial.print(central.address());
+    Serial.print(" (Name: ");
+    Serial.print(central.localName());
+    Serial.println(")");
 }
 
-void BLEManager::handleDisconnect(BLEDevice central) {
-    Serial.print("Disconnected from central: ");
-    Serial.println(central.address());
+void BLEManager::handleDisconnect(BLEDevice central)
+{
+    Serial.print("BLE DISCONNECT: Device disconnected - ");
+    Serial.print(central.address());
+    Serial.print(" (Name: ");
+    Serial.print(central.localName());
+    Serial.println(")");
     // After disconnecting, start advertising again to allow new connections.
     BLE.advertise();
-    Serial.println("Advertising restarted.");
+    Serial.println("BLE: Advertising restarted after disconnect");
 }
 
-void BLEManager::handleWrite(BLEDevice central, BLECharacteristic characteristic) {
+void BLEManager::handleWrite(BLEDevice central, BLECharacteristic characteristic)
+{
     // This function is called whenever the app writes data to our RX characteristic.
-    Serial.print("Received ");
+    Serial.print("BLE RX: Received ");
     Serial.print(characteristic.valueLength());
-    Serial.println(" bytes.");
+    Serial.print(" bytes from ");
+    Serial.print(central.address());
+    Serial.print(" - ");
+
+    // Print the received data in a readable format
+    const uint8_t *data = characteristic.value();
+    size_t len = characteristic.valueLength();
+    for (size_t i = 0; i < min(len, (size_t)32); i++)
+    {
+        if (data[i] >= 32 && data[i] <= 126)
+        {
+            Serial.print((char)data[i]);
+        }
+        else
+        {
+            Serial.print("[0x");
+            Serial.print(data[i], HEX);
+            Serial.print("]");
+        }
+    }
+    if (len > 32)
+        Serial.print("...");
+    Serial.println();
 
     // If a command handler callback is registered, call it with the received data.
-    if (commandHandlerCallback) {
+    if (commandHandlerCallback)
+    {
+        Serial.println("BLE RX: Calling command handler");
         commandHandlerCallback(characteristic.value(), characteristic.valueLength());
+        Serial.println("BLE RX: Command handler completed");
+    }
+    else
+    {
+        Serial.println("BLE RX: No command handler registered!");
     }
 }

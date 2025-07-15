@@ -2,10 +2,11 @@
  * @file BinaryCommandHandler.cpp
  * @brief Implementation for handling binary commands from the app.
  *
- * This version contains the fully implemented 'handleGetEffectInfo' function
- * to correctly respond to the app's request for effect parameters.
+ * This version contains the fully implemented 'handleGetEffectInfo' function,
+ * the corrected 'handleBatchConfig' to send a success response, and enhanced
+ * Serial debugging output for easier troubleshooting.
  *
- * @version 2.1
+ * @version 2.3
  * @date 2025-07-15
  */
 #include "BinaryCommandHandler.h"
@@ -15,14 +16,30 @@
 #include "BLEManager.h"
 #include <ArduinoJson.h>
 
+// Forward declaration for a function you likely have in another file.
+void handleBatchConfigJson(const String &jsonPayload); 
+
 extern PixelStrip *strip;
 extern uint16_t LED_COUNT;
 
 // --- Main Command Router ---
 void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
 {
-    if (len < 1)
+    if (len < 1) {
+        Serial.println("ERR: Received empty command.");
         return;
+    }
+
+    // Print incoming raw data for debugging
+    Serial.print("<- RX Command (len ");
+    Serial.print(len);
+    Serial.print("): ");
+    for(size_t i=0; i<len; i++) {
+        Serial.print(data[i], HEX);
+        Serial.print(" ");
+    }
+    Serial.println();
+
 
     BleCommand cmd = (BleCommand)data[0];
     const uint8_t *payload = data + 1;
@@ -88,7 +105,7 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
     {
         uint8_t ack_payload[] = {CMD_ACK};
         BLEManager::getInstance().sendMessage(ack_payload, 1);
-        Serial.println("-> Sent ACK");
+        Serial.println("-> Sent Generic ACK");
     }
 }
 
@@ -96,26 +113,53 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
 
 void BinaryCommandHandler::handleSetColor(const uint8_t *payload, size_t len)
 {
-    if (len < 4 || !strip)
+    Serial.println("CMD: Set Color");
+    if (len < 4) {
+        Serial.println("ERR: Payload too short for Set Color");
         return;
+    }
+    if (!strip) {
+        Serial.println("ERR: Strip not initialized!");
+        return;
+    }
+
     uint8_t segId = payload[0];
     if (segId < strip->getSegments().size())
     {
         strip->getSegments()[segId]->setColor(payload[1], payload[2], payload[3]);
-        Serial.println("OK: Color set");
+        Serial.print("OK: Seg ");
+        Serial.print(segId);
+        Serial.print(" color set to R:");
+        Serial.print(payload[1]);
+        Serial.print(" G:");
+        Serial.print(payload[2]);
+        Serial.print(" B:");
+        Serial.println(payload[3]);
+    } else {
+        Serial.print("ERR: Invalid segment ID: ");
+        Serial.println(segId);
     }
 }
 
 void BinaryCommandHandler::handleSetEffect(const uint8_t *payload, size_t len)
 {
-    if (len < 2 || !strip)
+    Serial.println("CMD: Set Effect");
+    if (len < 2) {
+        Serial.println("ERR: Payload too short for Set Effect");
         return;
+    }
+     if (!strip) {
+        Serial.println("ERR: Strip not initialized!");
+        return;
+    }
+    
     uint8_t segId = payload[0];
     uint8_t effectId = payload[1];
 
     if (segId >= strip->getSegments().size())
     {
-        Serial.println("ERR: Invalid segment ID");
+        Serial.print("ERR: Invalid segment ID: ");
+        Serial.println(segId);
         return;
     }
 
@@ -133,14 +177,22 @@ void BinaryCommandHandler::handleSetEffect(const uint8_t *payload, size_t len)
     }
     else
     {
-        Serial.println("ERR: Unknown effect ID");
+        Serial.print("ERR: Unknown effect ID: ");
+        Serial.println(effectId);
     }
 }
 
 void BinaryCommandHandler::handleSetBrightness(const uint8_t *payload, size_t len)
 {
-    if (len < 1 || !strip)
+    Serial.println("CMD: Set Brightness (Global)");
+    if (len < 1) {
+        Serial.println("ERR: Payload too short for Set Brightness");
         return;
+    }
+    if (!strip) {
+        Serial.println("ERR: Strip not initialized!");
+        return;
+    }
     strip->getSegments()[0]->setBrightness(payload[0]);
     Serial.print("OK: Global Brightness set to ");
     Serial.println(payload[0]);
@@ -148,8 +200,15 @@ void BinaryCommandHandler::handleSetBrightness(const uint8_t *payload, size_t le
 
 void BinaryCommandHandler::handleSetSegmentBrightness(const uint8_t *payload, size_t len)
 {
-    if (len < 2 || !strip)
+    Serial.println("CMD: Set Segment Brightness");
+    if (len < 2) {
+        Serial.println("ERR: Payload too short for Set Seg Brightness");
         return;
+    }
+    if (!strip) {
+        Serial.println("ERR: Strip not initialized!");
+        return;
+    }
     uint8_t segId = payload[0];
     if (segId < strip->getSegments().size())
     {
@@ -161,17 +220,19 @@ void BinaryCommandHandler::handleSetSegmentBrightness(const uint8_t *payload, si
     }
     else
     {
-        Serial.println("ERR: Invalid segment ID");
+        Serial.print("ERR: Invalid segment ID: ");
+        Serial.println(segId);
     }
 }
 
 void BinaryCommandHandler::handleSelectSegment(const uint8_t *payload, size_t len)
 {
-    Serial.println("OK: Select segment command received (no-op on firmware)");
+    Serial.println("CMD: Select segment (no-op on firmware)");
 }
 
 void BinaryCommandHandler::handleClearSegments()
 {
+    Serial.println("CMD: Clear Segments");
     if (strip)
     {
         strip->clearUserSegments();
@@ -185,8 +246,15 @@ void BinaryCommandHandler::handleClearSegments()
 
 void BinaryCommandHandler::handleSetSegmentRange(const uint8_t *payload, size_t len)
 {
-    if (len < 5 || !strip)
+    Serial.println("CMD: Set Segment Range");
+    if (len < 5) {
+        Serial.println("ERR: Payload too short for Set Seg Range");
         return;
+    }
+    if (!strip) {
+        Serial.println("ERR: Strip not initialized!");
+        return;
+    }
     uint8_t segId = payload[0];
     uint16_t start = (payload[1] << 8) | payload[2];
     uint16_t end = (payload[3] << 8) | payload[4];
@@ -203,20 +271,27 @@ void BinaryCommandHandler::handleSetSegmentRange(const uint8_t *payload, size_t 
     }
     else
     {
-        Serial.println("ERR: Invalid segment ID");
+        Serial.print("ERR: Invalid segment ID: ");
+        Serial.println(segId);
     }
 }
 
 void BinaryCommandHandler::handleSetLedCount(const uint8_t *payload, size_t len)
 {
-    if (len < 2)
+    Serial.println("CMD: Set LED Count");
+    if (len < 2) {
+        Serial.println("ERR: Payload too short for Set LED Count");
         return;
+    }
     uint16_t count = (payload[0] << 8) | payload[1];
+    Serial.print("OK: Setting LED count to ");
+    Serial.println(count);
     setLedCount(count);
 }
 
 void BinaryCommandHandler::handleGetStatus()
 {
+    Serial.println("CMD: Get Status");
     StaticJsonDocument<1024> doc;
     doc["led_count"] = LED_COUNT;
 
@@ -243,12 +318,15 @@ void BinaryCommandHandler::handleGetStatus()
 
     String response;
     serializeJson(doc, response);
+    Serial.print("-> Sending Status JSON (");
+    Serial.print(response.length());
+    Serial.println(" bytes)");
     BLEManager::getInstance().sendMessage(response);
-    Serial.println("-> Sent Status JSON");
 }
 
 void BinaryCommandHandler::handleGetLedCount()
 {
+    Serial.println("CMD: Get LED Count");
     uint8_t response[3];
     response[0] = CMD_GET_LED_COUNT;
     response[1] = (LED_COUNT >> 8) & 0xFF;
@@ -260,43 +338,51 @@ void BinaryCommandHandler::handleGetLedCount()
 
 void BinaryCommandHandler::handleBatchConfig(const uint8_t *payload, size_t len)
 {
+    Serial.println("CMD: Batch Config");
     String jsonPayload;
-    jsonPayload.reserve(len);
+    jsonPayload.reserve(len + 1);
     for (size_t i = 0; i < len; ++i)
     {
         jsonPayload += (char)payload[i];
     }
+    
+    Serial.print("Received JSON payload (");
+    Serial.print(jsonPayload.length());
+    Serial.println(" bytes). Applying...");
+    // Serial.println(jsonPayload); // Uncomment for full JSON dump
 
-    Serial.println("Received batch config. Applying...");
-    handleBatchConfigJson(jsonPayload);
+    handleBatchConfigJson(jsonPayload); // Assuming this function applies the config.
+
+    // *** THE FIX IS HERE ***
+    // After successfully applying the configuration, we MUST send a response.
+    // This tells the Android app that the command was successful and it can
+    // send the next command in its queue. Without this, the app freezes.
+    BLEManager::getInstance().sendMessage("{\"status\":\"OK\"}");
+    Serial.println("-> Sent Batch Config OK response");
 }
 
-/**
- * **[THIS IS THE FIX]**
- * This function now correctly handles a request for an effect's details.
- * It uses the incoming effect index to create a temporary instance of that effect,
- * serializes its parameters into a JSON object, and sends it back to the app.
- */
 void BinaryCommandHandler::handleGetEffectInfo(const uint8_t *payload, size_t len)
 {
+    Serial.println("CMD: Get Effect Info");
     if (len < 1)
     {
         Serial.println("ERR: Missing effect ID for GET_EFFECT_INFO");
         return;
     }
     uint8_t effectIndex = payload[0];
+    Serial.print("Requested info for effect index: ");
+    Serial.println(effectIndex);
+
     const char *effectName = getEffectNameFromId(effectIndex);
 
-    if (!effectName || !strip)
+    if (!effectName || !strip || strip->getSegments().empty())
     {
-        Serial.print("ERR: Invalid effect index or strip not initialized. Index: ");
+        Serial.print("ERR: Invalid effect index, strip not initialized, or no segments. Index: ");
         Serial.println(effectIndex);
         return;
     }
 
     // Create a temporary "dummy" segment to pass to the effect constructor.
-    // The effect needs a segment to access helper functions like ColorHSV, but it won't
-    // actually draw anything.
     PixelStrip::Segment *dummySegment = strip->getSegments()[0];
     BaseEffect *tempEffect = createEffectByName(effectName, dummySegment);
 
@@ -343,9 +429,12 @@ void BinaryCommandHandler::handleGetEffectInfo(const uint8_t *payload, size_t le
     // Send the JSON response over BLE
     String response;
     serializeJson(doc, response);
+    Serial.print("-> Sending Effect Info for '");
+    Serial.print(effectName);
+    Serial.print("' (");
+    Serial.print(response.length());
+    Serial.println(" bytes)");
     BLEManager::getInstance().sendMessage(response);
-    Serial.print("-> Sent Effect Info for: ");
-    Serial.println(effectName);
 
     // Clean up the temporary effect instance
     delete tempEffect;
@@ -353,5 +442,5 @@ void BinaryCommandHandler::handleGetEffectInfo(const uint8_t *payload, size_t le
 
 void BinaryCommandHandler::handleAck()
 {
-    Serial.println("Received ACK from app.");
+    Serial.println("<- Received ACK from app.");
 }
