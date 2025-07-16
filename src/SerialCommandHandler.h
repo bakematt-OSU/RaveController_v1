@@ -27,8 +27,11 @@ private:
     void handleSetParameter(const String& args);
     void handleBatchConfig(const String& json);
 
-    // <<-- ADD THIS LINE -->>
+    // Existing handler for serial testing of get all segment configs
     void handleGetAllSegmentConfigsSerial(); 
+
+    // <<-- ADD THIS NEW LINE -->>
+    void handleSetAllSegmentConfigsSerial();
 };
 
 #endif // SERIAL_COMMAND_HANDLER_H

@@ -9,7 +9,6 @@
 extern BinaryCommandHandler binaryCommandHandler; 
 
 // --- Helper Functions to Parse Commands ---
-// <<-- ENSURE THESE FUNCTIONS ARE PRESENT AND UNCOMMENTED -->>
 String SerialCommandHandler::getWord(const String& text, int index) {
     int current_word = 0;
     int start_pos = 0;
@@ -31,7 +30,6 @@ String SerialCommandHandler::getRestOfCommand(const String& text, int startIndex
     if (pos == -1 || pos >= (int)text.length() - 1) return "";
     return text.substring(pos + 1);
 }
-// <<-- END HELPER FUNCTIONS -->>
 
 // --- Main Command Handling Logic ---
 
@@ -74,6 +72,10 @@ void SerialCommandHandler::handleCommand(const String& command) {
     else if (cmd.equalsIgnoreCase("getallsegmentconfigs")) {
         handleGetAllSegmentConfigsSerial();
     }
+    // ADDED: New command to initiate setting all segment configs via serial
+    else if (cmd.equalsIgnoreCase("setallsegmentconfigs")) {
+        handleSetAllSegmentConfigsSerial();
+    }
     else {
         Serial.print("ERR: Unknown command '");
         Serial.print(cmd);
@@ -83,7 +85,30 @@ void SerialCommandHandler::handleCommand(const String& command) {
 
 void SerialCommandHandler::handleGetAllSegmentConfigsSerial() {
     Serial.println("Serial Command: Calling BinaryCommandHandler::handleGetAllSegmentConfigs() for Serial Output.");
+    // This calls the BinaryCommandHandler's function, telling it to output to Serial.
     binaryCommandHandler.handleGetAllSegmentConfigs(true); 
+}
+
+// ADDED: New handler function for setting all segment configurations via serial
+void SerialCommandHandler::handleSetAllSegmentConfigsSerial() {
+    Serial.println("Serial Command: Initiating Set All Segment Configurations. This requires manual JSON input.");
+    Serial.println("The Arduino is now expecting:");
+    Serial.println("1. A 2-byte segment count (e.g., '0002' for 2 segments).");
+    Serial.println("2. Each segment's full JSON configuration, one after another.");
+    Serial.println("After each piece of data (count or JSON), the Arduino will send an ACK.");
+    Serial.println("Example sequence for 2 segments:");
+    Serial.println("Type '0002' (representing 2 segments) and press Enter.");
+    Serial.println("Wait for Arduino ACK.");
+    Serial.println("Paste JSON for segment 1 and press Enter.");
+    Serial.println("Wait for Arduino ACK.");
+    Serial.println("Paste JSON for segment 2 and press Enter.");
+    Serial.println("Wait for Arduino ACK.");
+    
+    // Set the state in BinaryCommandHandler to expect the count, then the JSONs.
+    // We're simulating the BLE command initiation here.
+    binaryCommandHandler.handleSetAllSegmentConfigsCommand(); 
+    // Note: The actual data input (count and JSONs) will need to be manually
+    // pasted into the serial monitor after this command is issued.
 }
 
 // --- Specific Command Implementations (existing) ---

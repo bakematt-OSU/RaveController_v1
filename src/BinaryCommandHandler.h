@@ -19,10 +19,19 @@ enum BleCommand : uint8_t {
     CMD_GET_EFFECT_INFO = 0x0B,
     CMD_SET_LED_COUNT   = 0x0C,
     CMD_GET_LED_COUNT   = 0x0D,
-    CMD_GET_ALL_SEGMENT_CONFIGS = 0x0E, 
+    CMD_GET_ALL_SEGMENT_CONFIGS = 0x0E,
+    CMD_SET_ALL_SEGMENT_CONFIGS = 0x0F, // New command code
 
     // Response codes
     CMD_ACK             = 0xA0,
+};
+
+// State machine for incoming multi-part commands (like batch config or set all segments)
+enum class IncomingBatchState {
+    IDLE,
+    EXPECTING_BATCH_CONFIG_JSON, // For CMD_BATCH_CONFIG
+    EXPECTING_ALL_SEGMENTS_COUNT, // For CMD_SET_ALL_SEGMENT_CONFIGS
+    EXPECTING_ALL_SEGMENTS_JSON // For CMD_SET_ALL_SEGMENT_CONFIGS
 };
 
 class BinaryCommandHandler {
@@ -40,16 +49,29 @@ public:
      * @brief Handles the request to get all segment configurations.
      * @param viaSerial If true, output is sent to Serial. If false, output is sent via BLE.
      */
-    void handleGetAllSegmentConfigs(bool viaSerial); // <<-- MODIFIED DECLARATION -->>
+    void handleGetAllSegmentConfigs(bool viaSerial);
+
+    void handleSetAllSegmentConfigsCommand(); // Now public so it can be called externally
+
+    /**
+     * @brief Get the current incoming batch state.
+     * @return The current IncomingBatchState.
+     */
+    IncomingBatchState getIncomingBatchState() const { return _incomingBatchState; } // ADD THIS LINE
 
 private:
     // --- State for handling chunked data ---
-    String batchConfigBuffer;
-    bool isReceivingBatchConfig = false;
+    String _incomingJsonBuffer; // Re-purposed for generic incoming JSON
+    IncomingBatchState _incomingBatchState; // State for multi-part incoming commands
 
-    volatile bool _ackReceived; // Flag to indicate ACK received
-    unsigned long _ackTimeoutStart; // Timer for ACK timeout
-    const unsigned long ACK_WAIT_TIMEOUT_MS = 1000; // Max time to wait for an ACK (1 second)
+    // For ACK mechanism
+    volatile bool _ackReceived;
+    unsigned long _ackTimeoutStart;
+    const unsigned long ACK_WAIT_TIMEOUT_MS = 1000;
+
+    // For CMD_SET_ALL_SEGMENT_CONFIGS
+    uint16_t _expectedSegmentsToReceive; // Total count of segments expected in the batch
+    uint16_t _segmentsReceivedInBatch;   // Counter for segments received so far
 
     // --- Command-specific handler methods (these remain private) ---
     void handleSetColor(const uint8_t* payload, size_t len);
@@ -65,9 +87,12 @@ private:
     // --- Handlers for commands that send back data (these remain private) ---
     void handleGetStatus();
     void handleGetLedCount();
-    void handleBatchConfig(const uint8_t* payload, size_t len);
+    void handleBatchConfig(const uint8_t* payload, size_t len); // Original batch config
     void handleGetEffectInfo(const uint8_t* payload, size_t len);
     
+    // Helper for multi-part incoming data processing (private as it's called internally)
+    void processIncomingAllSegmentsData(const uint8_t* data, size_t len); 
+
     // --- Handler for acknowledgements from the app (this remains private) ---
     void handleAck();
 };

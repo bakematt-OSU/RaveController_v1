@@ -122,14 +122,48 @@ void loop() {
 
 // --- Serial Command Processing ---
 void processSerial() {
-    if (Serial.available() > 0) {
-        String command = Serial.readStringUntil('\n');
-        command.trim();
-        if (command.length() > 0) {
-            Serial.print("Serial Command Received: '");
-            Serial.print(command);
-            Serial.println("'");
-            serialCommandHandler.handleCommand(command);
+    // Check if BinaryCommandHandler is in a state expecting multi-part data
+    if (binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_COUNT ||
+        binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON) {
+        
+        // If in a batch state, read raw bytes and pass them directly to the binary handler
+        if (Serial.available() > 0) {
+            // Read all available bytes into a temporary buffer
+            const size_t max_read_len = 256; // Max buffer size for serial read
+            uint8_t temp_buffer[max_read_len];
+            size_t bytes_read = Serial.readBytes(temp_buffer, min((size_t)Serial.available(), max_read_len));
+            
+            if (bytes_read > 0) {
+                Serial.print("Serial RX (Raw): ");
+                Serial.print(bytes_read);
+                Serial.print(" bytes - ");
+                for (size_t i = 0; i < min(bytes_read, (size_t)32); i++) {
+                    if (temp_buffer[i] >= 32 && temp_buffer[i] <= 126) {
+                        Serial.print((char)temp_buffer[i]);
+                    } else {
+                        Serial.print("[0x");
+                        Serial.print(temp_buffer[i], HEX);
+                        Serial.print("]");
+                    }
+                }
+                if (bytes_read > 32) Serial.print("...");
+                Serial.println();
+
+                // Pass raw bytes to the binary command handler
+                binaryCommandHandler.handleCommand(temp_buffer, bytes_read);
+            }
+        }
+    } else {
+        // Otherwise, process as a regular text command
+        if (Serial.available() > 0) {
+            String command = Serial.readStringUntil('\n');
+            command.trim();
+            if (command.length() > 0) {
+                Serial.print("Serial Command Received: '");
+                Serial.print(command);
+                Serial.println("'");
+                serialCommandHandler.handleCommand(command);
+            }
         }
     }
 }
