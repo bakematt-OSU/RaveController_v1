@@ -16,6 +16,8 @@ public:
         params[0].name = "flash_color";
         params[0].type = ParamType::COLOR;
         params[0].value.colorValue = 0xFFFFFF; // Default: white
+        params[0].min_val = 0.0; // Initialize
+        params[0].max_val = 0.0; // Initialize
     }
 
     void update() override {

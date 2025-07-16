@@ -60,12 +60,18 @@ public:
         params[2].name           = "color1";
         params[2].type           = ParamType::COLOR;
         params[2].value.colorValue = 0xFF0000;
+        params[2].min_val        = 0.0; // Initialize
+        params[2].max_val        = 0.0; // Initialize
         params[3].name           = "color2";
         params[3].type           = ParamType::COLOR;
         params[3].value.colorValue = 0xFFFF00;
+        params[3].min_val        = 0.0; // Initialize
+        params[3].max_val        = 0.0; // Initialize
         params[4].name           = "color3";
         params[4].type           = ParamType::COLOR;
         params[4].value.colorValue = 0xFFFFFF;
+        params[4].min_val        = 0.0; // Initialize
+        params[4].max_val        = 0.0; // Initialize
 
         if (segment) {
             int start = segment->startIndex();

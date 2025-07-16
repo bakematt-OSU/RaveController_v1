@@ -26,10 +26,30 @@ String SerialCommandHandler::getWord(const String& text, int index) {
 }
 
 String SerialCommandHandler::getRestOfCommand(const String& text, int startIndex) {
-    int pos = text.indexOf(' ');
-    if (pos == -1 || pos >= (int)text.length() - 1) return "";
-    return text.substring(pos + 1);
+    int first_space_pos = text.indexOf(' ');
+    if (first_space_pos == -1) return ""; // No space found
+    
+    // Find the Nth space for startIndex
+    int current_word_count = 0;
+    int current_pos = 0;
+    while (current_word_count < startIndex) {
+        current_pos = text.indexOf(' ', current_pos);
+        if (current_pos == -1) return ""; // Not enough words
+        current_pos++;
+        current_word_count++;
+    }
+    
+    // If startIndex is 0, we want the rest after the first word
+    if (startIndex == 0) {
+        return text.substring(first_space_pos + 1);
+    } else {
+        // Find the start of the desired "rest"
+        int start_of_rest = text.indexOf(' ', current_pos);
+        if (start_of_rest == -1) return ""; // No more words after startIndex
+        return text.substring(start_of_rest + 1);
+    }
 }
+
 
 // --- Main Command Handling Logic ---
 
@@ -63,7 +83,8 @@ void SerialCommandHandler::handleCommand(const String& command) {
     } else if (cmd.equalsIgnoreCase("seteffect")) {
         handleSetEffect(args);
     } else if (cmd.equalsIgnoreCase("geteffectinfo")) {
-        handleGetEffectInfo(args);
+        // FIX: Pass the actual effect name string from args
+        handleGetEffectInfo(args); 
     } else if (cmd.equalsIgnoreCase("setparameter") || cmd.equalsIgnoreCase("setparam")) {
         handleSetParameter(args);
     } else if (cmd.equalsIgnoreCase("batchconfig")) {
@@ -119,7 +140,7 @@ void SerialCommandHandler::handleListEffects() {
         effects.add(EFFECT_NAMES[i]);
     }
     serializeJson(doc, Serial);
-    Serial.println();
+    Serial.println(); // Ensure a newline after the JSON
 }
 
 void SerialCommandHandler::handleGetStatus() {
@@ -145,7 +166,7 @@ void SerialCommandHandler::handleGetStatus() {
         }
     }
     serializeJson(doc, Serial);
-    Serial.println();
+    Serial.println(); // Ensure a newline after the JSON
 }
 
 void SerialCommandHandler::handleGetLedCount() {
@@ -228,25 +249,41 @@ void SerialCommandHandler::handleSetEffect(const String& args) {
     }
 }
 
+// FIX: Modified to take the effect name string directly
 void SerialCommandHandler::handleGetEffectInfo(const String& args) {
-    int segIndex = args.toInt();
-    if (!strip || segIndex < 0 || segIndex >= (int)strip->getSegments().size()) {
-        Serial.println("ERR: Invalid segment index.");
+    // args format: "<segment_index> <effect_name>"
+    // We only care about the effect_name here for getting its info
+    String effectNameStr = getWord(args, 1); // Get the effect name (second word)
+
+    if (effectNameStr.isEmpty()) {
+        Serial.println("ERR: Missing effect name for GET_EFFECT_INFO.");
         return;
     }
 
-    PixelStrip::Segment* seg = strip->getSegments()[segIndex];
-    if (!seg->activeEffect) {
-        Serial.println("ERR: No active effect on this segment.");
+    // Create a dummy segment to instantiate the effect and get its parameters
+    // This assumes segment 0 exists and is valid for temporary effect creation.
+    // Alternatively, you could create a temporary PixelStrip and Segment here if needed.
+    if (!strip || strip->getSegments().empty()) {
+        Serial.println("ERR: Strip not initialized or no segments available for dummy effect creation.");
+        return;
+    }
+    PixelStrip::Segment* dummySegment = strip->getSegments()[0]; 
+
+    BaseEffect* tempEffect = createEffectByName(effectNameStr, dummySegment);
+
+    if (!tempEffect) {
+        Serial.print("ERR: Failed to create temporary effect for '");
+        Serial.print(effectNameStr);
+        Serial.println("'.");
         return;
     }
 
     StaticJsonDocument<512> doc;
-    doc["effect"] = seg->activeEffect->getName();
+    doc["effect"] = tempEffect->getName(); // This should now be the requested effect's name
     JsonArray params = doc.createNestedArray("params");
 
-    for (int i = 0; i < seg->activeEffect->getParameterCount(); ++i) {
-        EffectParameter* p = seg->activeEffect->getParameter(i);
+    for (int i = 0; i < tempEffect->getParameterCount(); ++i) {
+        EffectParameter* p = tempEffect->getParameter(i);
         JsonObject p_obj = params.createNestedObject();
         p_obj["name"] = p->name;
         
@@ -254,25 +291,34 @@ void SerialCommandHandler::handleGetEffectInfo(const String& args) {
             case ParamType::INTEGER:
                 p_obj["type"] = "integer";
                 p_obj["value"] = p->value.intValue;
+                p_obj["min_val"] = p->min_val; // Include min/max
+                p_obj["max_val"] = p->max_val; // Include min/max
                 break;
             case ParamType::FLOAT:
                 p_obj["type"] = "float";
                 p_obj["value"] = p->value.floatValue;
+                p_obj["min_val"] = p->min_val; // Include min/max
+                p_obj["max_val"] = p->max_val; // Include min/max
                 break;
             case ParamType::COLOR:
                 p_obj["type"] = "color";
                 p_obj["value"] = p->value.colorValue;
+                // Color parameters typically don't have min/max in the same way, but include if defined
+                if (p->min_val != 0 || p->max_val != 0) { // Check if they are non-default
+                    p_obj["min_val"] = p->min_val;
+                    p_obj["max_val"] = p->max_val;
+                }
                 break;
             case ParamType::BOOLEAN:
                 p_obj["type"] = "boolean";
                 p_obj["value"] = p->value.boolValue;
                 break;
         }
-        p_obj["min_val"] = p->min_val;
-        p_obj["max_val"] = p->max_val;
     }
     serializeJson(doc, Serial);
-    Serial.println();
+    Serial.println(); // Ensure a newline after the JSON
+
+    delete tempEffect; // Clean up the temporary effect instance
 }
 
 void SerialCommandHandler::handleSetParameter(const String& args) {
