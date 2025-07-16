@@ -14,13 +14,18 @@
 #include "EffectLookup.h"
 #include "ConfigManager.h"
 #include "BLEManager.h"
-#include <ArduinoJson.h>
+#include <ArduinoJson.h> 
 
 // Forward declaration for a function you likely have in another file.
 void handleBatchConfigJson(const String &jsonPayload);
 
 extern PixelStrip *strip;
 extern uint16_t LED_COUNT;
+
+// Add/Modify constructor to initialize ACK flag, as per previous fix
+BinaryCommandHandler::BinaryCommandHandler() : _ackReceived(false), _ackTimeoutStart(0) {
+    // Other initializations if any
+}
 
 // --- Main Command Router ---
 void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
@@ -88,8 +93,8 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
     case CMD_SET_LED_COUNT:
         handleSetLedCount(payload, payloadLen);
         break;
-    case CMD_SET_EFFECT_PARAMETER: // Handle the new command
-        handleSetEffectParameter(payload, payloadLen); //
+    case CMD_SET_EFFECT_PARAMETER: 
+        handleSetEffectParameter(payload, payloadLen); 
         break;
     case CMD_GET_STATUS:
         handleGetStatus();
@@ -104,9 +109,12 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
         sendGenericAck = false;
         break;
     case CMD_BATCH_CONFIG:
-        // This is the start of a new batch configuration
         handleBatchConfig(payload, payloadLen);
-        sendGenericAck = false; // The function will handle its own ACKs/responses
+        sendGenericAck = false; 
+        break;
+    case CMD_GET_ALL_SEGMENT_CONFIGS: 
+        handleGetAllSegmentConfigs(false); // <<-- PASS FALSE HERE (for BLE invocation) -->>
+        sendGenericAck = false; 
         break;
     case CMD_ACK:
         handleAck();
@@ -128,6 +136,134 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
     }
 }
 
+void BinaryCommandHandler::handleAck()
+{
+    Serial.println("<- Received ACK from app.");
+    _ackReceived = true; // Set the flag
+}
+
+// --- Modified handleGetAllSegmentConfigs for conditional output ---
+void BinaryCommandHandler::handleGetAllSegmentConfigs(bool viaSerial) { // <<-- ADD PARAMETER -->>
+    Serial.print("CMD: Get All Segment Configurations (viaSerial: ");
+    Serial.print(viaSerial ? "true" : "false");
+    Serial.println(")");
+
+    if (!strip) {
+        String errorMsg = "{\"error\":\"Strip not initialized for getting all segment configs.\"}";
+        if (viaSerial) {
+            Serial.println("ERR: " + errorMsg);
+        } else {
+            BLEManager::getInstance().sendMessage(errorMsg);
+        }
+        return;
+    }
+
+    // 1. Send the total number of segments
+    uint8_t segmentCount = strip->getSegments().size();
+    if (viaSerial) {
+        Serial.print("-> Sending total segments count via Serial: ");
+        Serial.println(segmentCount);
+        // For serial, we don't need a binary prefix for count, just print it.
+        // The Python script will infer the count from the first line or from the loop.
+    } else {
+        uint8_t responsePrefix[3];
+        responsePrefix[0] = (uint8_t)CMD_GET_ALL_SEGMENT_CONFIGS; 
+        responsePrefix[1] = (segmentCount >> 8) & 0xFF; 
+        responsePrefix[2] = segmentCount & 0xFF;        
+        BLEManager::getInstance().sendMessage(responsePrefix, 3);
+        Serial.print("-> Sent total segments count via BLE: ");
+        Serial.println(segmentCount);
+
+        _ackReceived = false; // Reset flag for initial ACK
+        _ackTimeoutStart = millis();
+
+        // Wait for ACK for the segment count message (only for BLE)
+        while (!_ackReceived && (millis() - _ackTimeoutStart < ACK_WAIT_TIMEOUT_MS)) {
+            BLEManager::getInstance().update(); // Poll BLE to receive incoming messages
+        }
+
+        if (!_ackReceived) {
+            Serial.println("ERR: Timeout waiting for ACK after sending segment count (BLE).");
+            BLEManager::getInstance().sendMessage("{\"error\":\"ACK timeout for segment count\"}");
+            return;
+        }
+        Serial.println("-> Received ACK for segment count (BLE).");
+    }
+
+    // 2. Loop through each segment and send its detailed configuration
+    for (auto *s : strip->getSegments()) {
+        StaticJsonDocument<512> doc; // Adjust size as needed
+
+        doc["id"] = s->getId();
+        doc["name"] = s->getName();
+        doc["startLed"] = s->startIndex();
+        doc["endLed"] = s->endIndex();
+        doc["brightness"] = s->getBrightness();
+        doc["effect"] = s->activeEffect ? s->activeEffect->getName() : "None";
+
+        if (s->activeEffect) {
+            for (int i = 0; i < s->activeEffect->getParameterCount(); ++i) {
+                EffectParameter *p = s->activeEffect->getParameter(i);
+                switch (p->type) {
+                    case ParamType::INTEGER:
+                        doc[p->name] = p->value.intValue;
+                        break;
+                    case ParamType::FLOAT:
+                        doc[p->name] = p->value.floatValue;
+                        break;
+                    case ParamType::COLOR:
+                        doc[p->name] = p->value.colorValue;
+                        break;
+                    case ParamType::BOOLEAN:
+                        doc[p->name] = p->value.boolValue;
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+        String response;
+        serializeJson(doc, response);
+
+        if (viaSerial) {
+            Serial.print("-> Sending Segment Config (ID ");
+            Serial.print(s->getId());
+            Serial.print(", ");
+            Serial.print(response.length());
+            Serial.println(" bytes) via Serial:");
+            Serial.println(response); // Print JSON directly to serial
+            // For serial, the Python script will send ACK based on receiving the JSON
+        } else {
+            Serial.print("-> Sending Segment Config (ID ");
+            Serial.print(s->getId());
+            Serial.print(", ");
+            Serial.print(response.length());
+            Serial.println(" bytes) via BLE.");
+            BLEManager::getInstance().sendMessage(response);
+
+            // Wait for ACK for the current segment's JSON (only for BLE)
+            _ackReceived = false; // Reset flag for next ACK
+            _ackTimeoutStart = millis();
+
+            while (!_ackReceived && (millis() - _ackTimeoutStart < ACK_WAIT_TIMEOUT_MS)) {
+                BLEManager::getInstance().update(); // Poll BLE to receive incoming messages
+            }
+
+            if (!_ackReceived) {
+                Serial.print("ERR: Timeout waiting for ACK for segment ID ");
+                Serial.print(s->getId());
+                Serial.println(" (BLE). Aborting sending remaining segments.");
+                BLEManager::getInstance().sendMessage("{\"error\":\"ACK timeout for segment\"}");
+                return; 
+            }
+            Serial.print("-> Received ACK for segment ID ");
+            Serial.println(s->getId());
+        }
+    }
+
+    Serial.println("OK: All segment configurations sent.");
+}
 // --- Command Implementations (existing) ---
 // ... (handleBatchConfig, handleSetColor, handleSetEffect, etc. remain the same)
 void BinaryCommandHandler::handleBatchConfig(const uint8_t *payload, size_t len)
@@ -465,12 +601,12 @@ void BinaryCommandHandler::handleGetEffectInfo(const uint8_t *payload, size_t le
     delete tempEffect;
 }
 
-void BinaryCommandHandler::handleAck()
-{
-    Serial.println("<- Received ACK from app.");
-}
+// void BinaryCommandHandler::handleAck()
+// {
+//     Serial.println("<- Received ACK from app.");
+//     _ackReceived = true; // Set the flag
+// }
 
-// New implementation for setting effect parameters
 void BinaryCommandHandler::handleSetEffectParameter(const uint8_t *payload, size_t len)
 {
     Serial.println("CMD: Set Effect Parameter");

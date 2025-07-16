@@ -26,6 +26,9 @@ private:
     void handleGetEffectInfo(const String& args);
     void handleSetParameter(const String& args);
     void handleBatchConfig(const String& json);
+
+    // <<-- ADD THIS LINE -->>
+    void handleGetAllSegmentConfigsSerial(); 
 };
 
 #endif // SERIAL_COMMAND_HANDLER_H

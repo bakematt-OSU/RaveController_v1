@@ -19,6 +19,7 @@ enum BleCommand : uint8_t {
     CMD_GET_EFFECT_INFO = 0x0B,
     CMD_SET_LED_COUNT   = 0x0C,
     CMD_GET_LED_COUNT   = 0x0D,
+    CMD_GET_ALL_SEGMENT_CONFIGS = 0x0E, 
 
     // Response codes
     CMD_ACK             = 0xA0,
@@ -26,6 +27,8 @@ enum BleCommand : uint8_t {
 
 class BinaryCommandHandler {
 public:
+    BinaryCommandHandler(); // Explicit declaration of the constructor
+
     /**
      * @brief The main entry point for processing a binary command.
      * @param data A pointer to the incoming byte array.
@@ -33,12 +36,22 @@ public:
      */
     void handleCommand(const uint8_t* data, size_t len);
 
+    /**
+     * @brief Handles the request to get all segment configurations.
+     * @param viaSerial If true, output is sent to Serial. If false, output is sent via BLE.
+     */
+    void handleGetAllSegmentConfigs(bool viaSerial); // <<-- MODIFIED DECLARATION -->>
+
 private:
     // --- State for handling chunked data ---
     String batchConfigBuffer;
     bool isReceivingBatchConfig = false;
 
-    // --- Command-specific handler methods ---
+    volatile bool _ackReceived; // Flag to indicate ACK received
+    unsigned long _ackTimeoutStart; // Timer for ACK timeout
+    const unsigned long ACK_WAIT_TIMEOUT_MS = 1000; // Max time to wait for an ACK (1 second)
+
+    // --- Command-specific handler methods (these remain private) ---
     void handleSetColor(const uint8_t* payload, size_t len);
     void handleSetEffect(const uint8_t* payload, size_t len);
     void handleSetBrightness(const uint8_t* payload, size_t len);
@@ -47,15 +60,15 @@ private:
     void handleClearSegments();
     void handleSetSegmentRange(const uint8_t* payload, size_t len);
     void handleSetLedCount(const uint8_t* payload, size_t len);
-    void handleSetEffectParameter(const uint8_t* payload, size_t len); // New handler for effect parameters
+    void handleSetEffectParameter(const uint8_t* payload, size_t len); 
 
-    // --- Handlers for commands that send back data ---
+    // --- Handlers for commands that send back data (these remain private) ---
     void handleGetStatus();
     void handleGetLedCount();
     void handleBatchConfig(const uint8_t* payload, size_t len);
     void handleGetEffectInfo(const uint8_t* payload, size_t len);
-
-    // --- Handler for acknowledgements from the app ---
+    
+    // --- Handler for acknowledgements from the app (this remains private) ---
     void handleAck();
 };
 

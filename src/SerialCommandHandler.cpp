@@ -3,9 +3,13 @@
 #include "EffectLookup.h"
 #include "Processes.h" 
 #include <ArduinoJson.h>
+#include "BinaryCommandHandler.h" // Ensure this is included
+
+// Forward declare the binary command handler instance
+extern BinaryCommandHandler binaryCommandHandler; 
 
 // --- Helper Functions to Parse Commands ---
-
+// <<-- ENSURE THESE FUNCTIONS ARE PRESENT AND UNCOMMENTED -->>
 String SerialCommandHandler::getWord(const String& text, int index) {
     int current_word = 0;
     int start_pos = 0;
@@ -27,6 +31,7 @@ String SerialCommandHandler::getRestOfCommand(const String& text, int startIndex
     if (pos == -1 || pos >= (int)text.length() - 1) return "";
     return text.substring(pos + 1);
 }
+// <<-- END HELPER FUNCTIONS -->>
 
 // --- Main Command Handling Logic ---
 
@@ -50,7 +55,6 @@ void SerialCommandHandler::handleCommand(const String& command) {
     } else if (cmd.equalsIgnoreCase("setledcount")) {
         setLedCount(args.toInt());
     } else if (cmd.equalsIgnoreCase("getledcount")) {
-        // --- FIX: Call the correct handler ---
         handleGetLedCount();
     } else if (cmd.equalsIgnoreCase("listsegments")) {
         handleListSegments();
@@ -66,15 +70,23 @@ void SerialCommandHandler::handleCommand(const String& command) {
         handleSetParameter(args);
     } else if (cmd.equalsIgnoreCase("batchconfig")) {
         handleBatchConfigJson(args);
-    } else {
+    } 
+    else if (cmd.equalsIgnoreCase("getallsegmentconfigs")) {
+        handleGetAllSegmentConfigsSerial();
+    }
+    else {
         Serial.print("ERR: Unknown command '");
         Serial.print(cmd);
         Serial.println("'");
     }
 }
 
-// --- Specific Command Implementations ---
+void SerialCommandHandler::handleGetAllSegmentConfigsSerial() {
+    Serial.println("Serial Command: Calling BinaryCommandHandler::handleGetAllSegmentConfigs() for Serial Output.");
+    binaryCommandHandler.handleGetAllSegmentConfigs(true); 
+}
 
+// --- Specific Command Implementations (existing) ---
 void SerialCommandHandler::handleListEffects() {
     StaticJsonDocument<512> doc;
     JsonArray effects = doc.createNestedArray("effects");
