@@ -88,7 +88,9 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
     case CMD_SET_LED_COUNT:
         handleSetLedCount(payload, payloadLen);
         break;
-
+    case CMD_SET_EFFECT_PARAMETER: // Handle the new command
+        handleSetEffectParameter(payload, payloadLen); //
+        break;
     case CMD_GET_STATUS:
         handleGetStatus();
         sendGenericAck = false;
@@ -126,8 +128,8 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
     }
 }
 
-// --- Command Implementations ---
-
+// --- Command Implementations (existing) ---
+// ... (handleBatchConfig, handleSetColor, handleSetEffect, etc. remain the same)
 void BinaryCommandHandler::handleBatchConfig(const uint8_t *payload, size_t len)
 {
     Serial.println("CMD: Batch Config STARTED");
@@ -466,4 +468,145 @@ void BinaryCommandHandler::handleGetEffectInfo(const uint8_t *payload, size_t le
 void BinaryCommandHandler::handleAck()
 {
     Serial.println("<- Received ACK from app.");
+}
+
+// New implementation for setting effect parameters
+void BinaryCommandHandler::handleSetEffectParameter(const uint8_t *payload, size_t len)
+{
+    Serial.println("CMD: Set Effect Parameter");
+    if (len < 4) // Minimum payload: segId (1) + paramType (1) + nameLen (1) + value (1 for bool minimum)
+    {
+        Serial.println("ERR: Payload too short for Set Effect Parameter");
+        BLEManager::getInstance().sendMessage("{\"error\":\"Payload too short\"}");
+        return;
+    }
+    if (!strip)
+    {
+        Serial.println("ERR: Strip not initialized!");
+        BLEManager::getInstance().sendMessage("{\"error\":\"Strip not initialized\"}");
+        return;
+    }
+
+    uint8_t segId = payload[0];
+    uint8_t paramTypeRaw = payload[1];
+    uint8_t nameLen = payload[2];
+
+    if (segId >= strip->getSegments().size())
+    {
+        Serial.print("ERR: Invalid segment ID: ");
+        Serial.println(segId);
+        BLEManager::getInstance().sendMessage("{\"error\":\"Invalid segment ID\"}");
+        return;
+    }
+
+    if ((size_t)3 + nameLen >= len) // Fix: Cast 3 to size_t for comparison with len
+    {
+        Serial.println("ERR: Invalid parameter name length or missing value data.");
+        BLEManager::getInstance().sendMessage("{\"error\":\"Invalid parameter data\"}");
+        return;
+    }
+
+    String paramName;
+    // Read parameter name (bytes 3 to 3 + nameLen - 1)
+    for (int i = 0; i < nameLen; ++i)
+    {
+        paramName += (char)payload[3 + i];
+    }
+
+    PixelStrip::Segment *seg = strip->getSegments()[segId];
+    if (!seg->activeEffect)
+    {
+        Serial.println("ERR: No active effect on segment to set parameter.");
+        BLEManager::getInstance().sendMessage("{\"error\":\"No active effect\"}");
+        return;
+    }
+
+    // Get a pointer to the value bytes
+    const uint8_t *valueBytes = payload + 3 + nameLen;
+    size_t valueLen = len - (3 + nameLen);
+
+    ParamType paramType = (ParamType)paramTypeRaw;
+
+    // Dispatch based on parameter type
+    switch (paramType)
+    {
+    case ParamType::INTEGER:
+    {
+        if (valueLen < 4)
+        {
+            Serial.println("ERR: Integer value too short.");
+            BLEManager::getInstance().sendMessage("{\"error\":\"Invalid integer value\"}");
+            return;
+        }
+        int32_t intValue = (int32_t)valueBytes[0] << 24 |
+                           (int32_t)valueBytes[1] << 16 |
+                           (int32_t)valueBytes[2] << 8 |
+                           (int32_t)valueBytes[3];
+        // Fix: Explicitly cast intValue to int to resolve ambiguity
+        seg->activeEffect->setParameter(paramName.c_str(), (int)intValue); //
+        Serial.print("OK: Set param '");
+        Serial.print(paramName);
+        Serial.print("' to int ");
+        Serial.println(intValue);
+        break;
+    }
+    case ParamType::FLOAT:
+    {
+        if (valueLen < 4)
+        {
+            Serial.println("ERR: Float value too short.");
+            BLEManager::getInstance().sendMessage("{\"error\":\"Invalid float value\"}");
+            return;
+        }
+        float floatValue;
+        memcpy(&floatValue, valueBytes, 4); // Copy bytes directly into float
+        seg->activeEffect->setParameter(paramName.c_str(), floatValue);
+        Serial.print("OK: Set param '");
+        Serial.print(paramName);
+        Serial.print("' to float ");
+        Serial.println(floatValue);
+        break;
+    }
+    case ParamType::COLOR:
+    {
+        if (valueLen < 4)
+        {
+            Serial.println("ERR: Color value too short.");
+            BLEManager::getInstance().sendMessage("{\"error\":\"Invalid color value\"}");
+            return;
+        }
+        // Assuming valueBytes[0] is typically 0x00 for RGB or alpha.
+        // For standard 0xRRGGBB, use bytes 1, 2, 3:
+        uint32_t colorValue = (uint32_t)valueBytes[1] << 16 |
+                              (uint32_t)valueBytes[2] << 8 |
+                              (uint32_t)valueBytes[3];
+        seg->activeEffect->setParameter(paramName.c_str(), colorValue);
+        Serial.print("OK: Set param '");
+        Serial.print(paramName);
+        Serial.print("' to color 0x");
+        Serial.println(colorValue, HEX);
+        break;
+    }
+    case ParamType::BOOLEAN:
+    {
+        if (valueLen < 1)
+        {
+            Serial.println("ERR: Bool value too short.");
+            BLEManager::getInstance().sendMessage("{\"error\":\"Invalid boolean value\"}");
+            return;
+        }
+        bool boolValue = (valueBytes[0] != 0);
+        seg->activeEffect->setParameter(paramName.c_str(), boolValue);
+        Serial.print("OK: Set param '");
+        Serial.print(paramName);
+        Serial.print("' to bool ");
+        Serial.println(boolValue ? "true" : "false");
+        break;
+    }
+    default:
+        Serial.print("ERR: Unknown ParamType: ");
+        Serial.println((int)paramTypeRaw);
+        BLEManager::getInstance().sendMessage("{\"error\":\"Unknown param type\"}");
+        return;
+    }
 }

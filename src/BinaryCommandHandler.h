@@ -15,11 +15,11 @@ enum BleCommand : uint8_t {
     CMD_SET_SEG_RANGE   = 0x07,
     CMD_GET_STATUS      = 0x08,
     CMD_BATCH_CONFIG    = 0x09,
-    // 0x0A is unused
+    CMD_SET_EFFECT_PARAMETER = 0x0A, // New command for setting effect parameters
     CMD_GET_EFFECT_INFO = 0x0B,
     CMD_SET_LED_COUNT   = 0x0C,
     CMD_GET_LED_COUNT   = 0x0D,
-    
+
     // Response codes
     CMD_ACK             = 0xA0,
 };
@@ -47,7 +47,8 @@ private:
     void handleClearSegments();
     void handleSetSegmentRange(const uint8_t* payload, size_t len);
     void handleSetLedCount(const uint8_t* payload, size_t len);
-    
+    void handleSetEffectParameter(const uint8_t* payload, size_t len); // New handler for effect parameters
+
     // --- Handlers for commands that send back data ---
     void handleGetStatus();
     void handleGetLedCount();
