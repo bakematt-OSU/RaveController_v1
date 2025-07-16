@@ -15,6 +15,7 @@
 
 #include <Arduino.h>
 #include <ArduinoBLE.h>
+#include "globals.h"
 
 // Define a function pointer type for the command callback.
 // It will be given the raw data and its length.

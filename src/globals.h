@@ -28,6 +28,9 @@ extern volatile int samplesRead;
 
 // --- Accelerometer & Motion ---
 extern float accelX, accelY, accelZ;
-extern volatile bool triggerRipple; // <-- FIX: Added extern declaration
+extern volatile bool triggerRipple;
+
+// --- New global flag for serial output management ---
+extern bool reAdvertisingMessagePrinted; //
 
 #endif // GLOBALS_H

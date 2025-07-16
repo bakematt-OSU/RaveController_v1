@@ -169,7 +169,9 @@ void BLEManager::handleConnect(BLEDevice central)
     Serial.print(" (Name: ");
     Serial.print(central.localName());
     Serial.println(")");
+    reAdvertisingMessagePrinted = false; // Reset the flag on successful connection
 }
+
 
 void BLEManager::handleDisconnect(BLEDevice central)
 {

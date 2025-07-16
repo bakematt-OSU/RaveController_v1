@@ -37,6 +37,9 @@ volatile int samplesRead = 0;
 float accelX, accelY, accelZ;
 volatile bool triggerRipple = false;
 
+// Initialize the new global flag
+bool reAdvertisingMessagePrinted = false; //
+
 // --- Forward declarations for hardware processing ---
 void processAudio();
 void processAccel();
@@ -87,6 +90,19 @@ void setup() {
 void loop() {
     // Poll for BLE events
     bleManager.update();
+
+    // Periodically check if BLE is connected. If not, ensure advertising is restarted.
+    // This addresses scenarios where the BLE disconnect event might not be reliably captured.
+    if (!bleManager.isConnected()) {
+        BLE.advertise();
+        if (!reAdvertisingMessagePrinted) { // Only print if the message hasn't been printed yet
+            Serial.println("BLE: Re-advertising due to detected disconnect."); //
+            reAdvertisingMessagePrinted = true; // Set flag to true after printing
+        }
+    } else {
+        // If connected, reset the flag so the message can be printed again on next disconnect
+        reAdvertisingMessagePrinted = false; //
+    }
 
     // Poll for Serial commands
     processSerial();
