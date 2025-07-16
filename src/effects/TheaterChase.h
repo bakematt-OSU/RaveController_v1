@@ -22,6 +22,7 @@ public:
         params[0].value.intValue = 50; // Default to a 50ms interval
         params[0].min_val = 10;
         params[0].max_val = 150;
+        // No COLOR or BOOLEAN params, so no min_val/max_val initialization needed here.
         lastUpdate = millis();
         rainbowFirstPixelHue = 0;
         chaseOffset = 0;

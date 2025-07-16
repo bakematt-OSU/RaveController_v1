@@ -16,6 +16,8 @@ public:
         params[0].name = "color";
         params[0].type = ParamType::COLOR;
         params[0].value.colorValue = 0x800080; // Default: Purple
+        params[0].min_val = 0.0; // Initialize for COLOR type
+        params[0].max_val = 0.0; // Initialize for COLOR type
     }
 
     void update() override {

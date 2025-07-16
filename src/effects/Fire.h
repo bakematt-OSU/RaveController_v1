@@ -52,6 +52,7 @@ public:
         params[1].value.intValue = 55;
         params[1].min_val     = 20;
         params[1].max_val     = 85;
+        // No COLOR or BOOLEAN params, so no min_val/max_val initialization needed here.
 
         // allocate heat[] just for this segment
         if (segment) {

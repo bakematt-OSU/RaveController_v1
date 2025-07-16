@@ -81,47 +81,52 @@ def read_json_response(ser, timeout_s=15):
     Intelligently attempts to parse the buffer as JSON and discards non-JSON debug lines.
     """
     json_str_buffer = ""
-    raw_char_buffer = ""  # To accumulate all characters for line-by-line printing
     start_time = time.time()
+
+    # List of common Arduino debug prefixes to ignore when building JSON buffer
+    debug_prefixes = [
+        "Serial RX (Raw):",
+        "Serial Command Received:",
+        "Serial Command:",
+        "CMD:",
+        "-> Sending",
+        "OK:",
+        "ERR:",
+        "BLE TX Failed:",
+        "Expected segments to receive:",
+        "Received segment JSON:",
+    ]
 
     while time.time() - start_time < timeout_s:
         if ser.in_waiting > 0:
-            char = ser.read(1).decode("utf-8", errors="ignore")
-            raw_char_buffer += char
+            line = ser.readline().decode("utf-8", errors="ignore").strip()
+            print(f"[RECV] Line: '{line}'")  # Always print the raw line for debugging
 
-            # If a newline is received, process the line for printing and potential JSON content
-            if "\n" in raw_char_buffer:
-                current_line = raw_char_buffer.split("\n")[0].strip()
-                print(f"[RECV] Line: '{current_line}'")
-                raw_char_buffer = "\n".join(
-                    raw_char_buffer.split("\n")[1:]
-                )  # Keep remaining part
+            # Check if the line is a debug message
+            is_debug_line = False
+            for prefix in debug_prefixes:
+                if line.startswith(prefix):
+                    is_debug_line = True
+                    break
 
-                # Heuristic to identify potential JSON lines and filter out common debug messages
-                if current_line.startswith("{") or current_line.startswith("["):
-                    json_str_buffer = (
-                        current_line  # Start new buffer if new JSON object begins
-                    )
-                elif (
-                    not current_line.startswith("Serial RX (Raw):")
-                    and not current_line.startswith("Serial Command Received:")
-                    and not current_line.startswith("Serial Command:")
-                    and not current_line.startswith("CMD:")
-                    and not current_line.startswith("-> Sending")
-                ):
-                    # Append only lines that seem to be part of JSON and not debug messages
-                    json_str_buffer += current_line
+            if is_debug_line:
+                # If it's a debug line, reset the timeout and continue to next line
+                start_time = time.time()
+                continue
 
-                # Try to parse the current buffer as JSON
-                if json_str_buffer:  # Only try if there's something in the buffer
-                    try:
-                        parsed_json = json.loads(json_str_buffer)
-                        return parsed_json  # Successfully parsed, return it!
-                    except json.JSONDecodeError:
-                        # Not a complete or valid JSON yet, keep buffering
-                        pass
+            # If it's not a debug line, assume it's part of the JSON response
+            json_str_buffer += line
 
-            # Reset timeout if any data is coming in (even debug messages)
+            # Try to parse the current buffer as JSON
+            if json_str_buffer:  # Only try if there's something in the buffer
+                try:
+                    parsed_json = json.loads(json_str_buffer)
+                    return parsed_json  # Successfully parsed, return it!
+                except json.JSONDecodeError:
+                    # Not a complete or valid JSON yet, keep buffering
+                    pass
+
+            # Reset timeout if any data is coming in (even if it's not yet a full JSON)
             start_time = time.time()
         time.sleep(0.001)  # Small delay
 
@@ -133,6 +138,7 @@ def read_json_response(ser, timeout_s=15):
 
 def get_available_effects(ser):
     """Fetches the list of available effects from the Arduino."""
+    ser.flushInput()  # Clear buffer before sending command
     send_command(ser, "listeffects\n")
     print("Waiting for available effects list from Arduino...")
 
@@ -149,6 +155,7 @@ def get_available_effects(ser):
 
 def get_effect_info(ser, effect_name):
     """Fetches parameter info for a specific effect from the Arduino."""
+    ser.flushInput()  # Clear buffer before sending command
     command = f"geteffectinfo 0 {effect_name}\n"  # Use segment 0 as a dummy
     send_command(ser, command)
     print(f"Waiting for effect info for '{effect_name}' from Arduino...")
@@ -177,6 +184,7 @@ def get_all_segment_configs(ser):
     """Sends 'getallsegmentconfigs' and receives all segment JSONs."""
     all_segments_data = []
 
+    ser.flushInput()  # Clear buffer before sending command
     send_command(ser, "getallsegmentconfigs\n")
 
     print("Waiting for segment configurations JSON from Arduino...")
@@ -196,6 +204,7 @@ def set_all_segment_configs(ser, segments_to_send):
     print("\n--- Initiating Set All Segment Configurations ---")
 
     # 1. Send the initial command (text command to SerialCommandHandler)
+    ser.flushInput()  # Clear buffer before sending command
     send_command(ser, "setallsegmentconfigs\n")
     if not wait_for_ack(ser):
         print("Failed to receive ACK for setallsegmentconfigs command initiation.")
@@ -216,6 +225,7 @@ def set_all_segment_configs(ser, segments_to_send):
     # 3. Send each segment's JSON configuration (text data)
     print(f"\nSending {num_segments} segment configurations...")
     for i, segment_data in enumerate(segments_to_send):
+        ser.flushInput()  # Clear buffer before sending each segment JSON
         json_segment = (
             json.dumps(segment_data) + "\n"
         )  # Add newline for readline on Arduino
@@ -287,6 +297,10 @@ def generate_test_segments(ser, led_count=45):  # Default changed to 45
     segment_length = max(1, led_count // num_dynamic_effects)
 
     current_led_start = 0
+
+    # Shuffle the dynamic_effects list to randomize assignment
+    random.shuffle(dynamic_effects)  # ADDED: Shuffle the list of effects
+
     effect_index = 0
 
     while current_led_start < led_count and effect_index < num_dynamic_effects:
@@ -308,7 +322,7 @@ def generate_test_segments(ser, led_count=45):  # Default changed to 45
             "brightness": random.randint(100, 255),  # Random brightness
         }
 
-        chosen_effect = dynamic_effects[effect_index]
+        chosen_effect = dynamic_effects[effect_index]  # Pick from the shuffled list
         segment["effect"] = chosen_effect
 
         # Add parameters for the chosen effect
@@ -388,6 +402,8 @@ def main():
     get_test_reason = ""
     set_test_status = "NOT RUN"
     set_test_reason = ""
+    verify_test_status = "NOT RUN"  # New variable for verification status
+    verify_test_reason = ""
 
     print(f"Connecting to {args.port} at {args.baud} baud...")
     ser = None  # Initialize ser to None
@@ -443,15 +459,21 @@ def main():
                 set_test_status == "PASSED"
             ):  # Only verify if the SET operation itself passed
                 print("\n--- Verifying SET by running GET again ---")
-                verify_segments = get_all_segment_configs(ser)
-                if verify_segments is None:
-                    print(
-                        "Verification failed: Could not retrieve segments after setting them."
-                    )
-                else:
-                    print(
-                        "Verification successful: Segments retrieved after SET operation."
-                    )
+                try:
+                    verify_segments = get_all_segment_configs(ser)
+                    if verify_segments is None:
+                        verify_test_status = "FAILED"
+                        verify_test_reason = (
+                            "Could not retrieve segments after setting them."
+                        )
+                    else:
+                        verify_test_status = "PASSED"
+                        verify_test_reason = (
+                            "Segments retrieved successfully after SET operation."
+                        )
+                except Exception as e:
+                    verify_test_status = "FAILED"
+                    verify_test_reason = f"Exception during verification GET: {e}"
 
     except KeyboardInterrupt:
         print("\nTesting interrupted by user.")
@@ -471,6 +493,11 @@ def main():
         print(f"SET Test Status: {set_test_status}")
         if set_test_status == "FAILED" or set_test_status == "SKIPPED":
             print(f"  Reason: {set_test_reason}")
+        print(
+            f"Verification Test Status: {verify_test_status}"
+        )  # Display verification status
+        if verify_test_status == "FAILED":
+            print(f"  Reason: {verify_test_reason}")
         print("=" * 30)
 
 

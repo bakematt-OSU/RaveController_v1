@@ -21,6 +21,7 @@ public:
         params[0].value.intValue = 20;
         params[0].min_val = 5;
         params[0].max_val = 100;
+        // No COLOR or BOOLEAN params, so no min_val/max_val initialization needed here.
         rainbowFirstPixelHue = 0;
         lastUpdate = millis();
     }

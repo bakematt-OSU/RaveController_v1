@@ -20,6 +20,8 @@ public:
         params[0].name = "color";
         params[0].type = ParamType::COLOR;
         params[0].value.colorValue = 0x00FF00; // Green
+        params[0].min_val = 0.0; // Initialize for COLOR type
+        params[0].max_val = 0.0; // Initialize for COLOR type
 
         // Parameter 2: Bubble Size
         params[1].name = "bubble_size";

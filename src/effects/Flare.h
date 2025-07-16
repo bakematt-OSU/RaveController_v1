@@ -44,6 +44,7 @@ public:
         params[1].value.intValue = 80;
         params[1].min_val        = 0;
         params[1].max_val        = 100;
+        // No COLOR or BOOLEAN params, so no min_val/max_val initialization needed here.
 
         if (segment) {
             int start = segment->startIndex();
