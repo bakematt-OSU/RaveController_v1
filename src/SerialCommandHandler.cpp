@@ -141,6 +141,10 @@ void SerialCommandHandler::handleCommand(const String &command)
     {
         handleSetAllSegmentConfigsSerial();
     }
+    else if (cmd.equalsIgnoreCase("setsegmentjson"))
+    {
+        handleSetSingleSegmentJson(args);
+    }
     else
     {
         Serial.print("ERR: Unknown command '");
@@ -466,4 +470,9 @@ void SerialCommandHandler::handleSetParameter(const String &args)
     }
 
     Serial.println("OK: Parameter set.");
+}
+void SerialCommandHandler::handleSetSingleSegmentJson(const String& json)
+{
+    Serial.println("Serial Command: Calling BinaryCommandHandler::processSingleSegmentJson() for Serial Input.");
+    binaryCommandHandler.processSingleSegmentJson(json);
 }

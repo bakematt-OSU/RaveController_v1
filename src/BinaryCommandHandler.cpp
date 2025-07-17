@@ -141,6 +141,15 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
         handleGetAllEffectsCommand(false);
         sendGenericAck = false;
         break;
+     case CMD_SET_SINGLE_SEGMENT_JSON:
+    {
+        String jsonPayload;
+        for(size_t i = 0; i < payloadLen; i++) {
+            jsonPayload += (char)payload[i];
+        }
+        processSingleSegmentJson(jsonPayload);
+        break;
+    }
     case CMD_ACK:
         handleAck();
         sendGenericAck = false;
@@ -855,4 +864,111 @@ void BinaryCommandHandler::handleGetAllSegmentConfigs(bool viaSerial)
         Serial.println(" bytes)");
         BLEManager::getInstance().sendMessage(response);
     }
+}
+void BinaryCommandHandler::processSingleSegmentJson(const String &jsonString) {
+    StaticJsonDocument<512> doc;
+    DeserializationError error = deserializeJson(doc, jsonString);
+    if (error)
+    {
+        Serial.print("ERR: JSON parse error for segment config: ");
+        Serial.println(error.c_str());
+        BLEManager::getInstance().sendMessage("{\"error\":\"JSON_PARSE_ERROR_SEGMENT\"}");
+        return;
+    }
+    String name = doc["name"] | "";
+    uint16_t start = doc["startLed"] | 0;
+    uint16_t end = doc["endLed"] | 0;
+    uint8_t brightness = doc["brightness"] | 255;
+    String effectNameStr = doc["effect"] | "SolidColor";
+    uint8_t segmentId = doc["id"] | 0;
+    PixelStrip::Segment *targetSeg = nullptr;
+
+    if (name.equalsIgnoreCase("all"))
+    {
+        targetSeg = strip->getSegments()[0];
+        targetSeg->setRange(start, end);
+    }
+    else
+    {
+        // Find existing segment by ID
+        for (auto *s : strip->getSegments())
+        {
+            if (s->getId() == segmentId)
+            {
+                targetSeg = s;
+                break;
+            }
+        }
+        // If not found, create a new one
+        if (!targetSeg)
+        {
+            strip->addSection(start, end, name);
+            targetSeg = strip->getSegments().back();
+        } else {
+            // if found, update its range
+            targetSeg->setRange(start,end);
+        }
+    }
+
+    if (targetSeg)
+    {
+        targetSeg->setBrightness(brightness);
+        if (targetSeg->activeEffect)
+        {
+            if (!String(targetSeg->activeEffect->getName()).equalsIgnoreCase(effectNameStr))
+            {
+                delete targetSeg->activeEffect;
+                targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
+            }
+        }
+        else
+        {
+            targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
+        }
+
+        if (targetSeg->activeEffect)
+        {
+            JsonArray params = doc["params"];
+            for (JsonObject param_data : params)
+            {
+                const char* paramName = param_data["name"];
+                if (paramName)
+                {
+                    // Find the parameter in the effect
+                    for(int i = 0; i < targetSeg->activeEffect->getParameterCount(); i++)
+                    {
+                        EffectParameter* p = targetSeg->activeEffect->getParameter(i);
+                        if (strcmp(p->name, paramName) == 0)
+                        {
+                             switch (p->type)
+                            {
+                            case ParamType::INTEGER:
+                                targetSeg->activeEffect->setParameter(p->name, param_data["value"].as<int>());
+                                break;
+                            case ParamType::FLOAT:
+                                targetSeg->activeEffect->setParameter(p->name, param_data["value"].as<float>());
+                                break;
+                            case ParamType::COLOR:
+                                targetSeg->activeEffect->setParameter(p->name, param_data["value"].as<uint32_t>());
+                                break;
+                            case ParamType::BOOLEAN:
+                                targetSeg->activeEffect->setParameter(p->name, param_data["value"].as<bool>());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Serial.print("OK: Segment ID ");
+        Serial.print(targetSeg->getId());
+        Serial.print(" (");
+        Serial.print(targetSeg->getName());
+        Serial.println(") config applied.");
+    }
+    else
+    {
+        Serial.println("ERR: Failed to find or create segment.");
+    }
+    strip->show();
 }
