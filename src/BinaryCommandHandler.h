@@ -2,7 +2,7 @@
  * @file BinaryCommandHandler.h
  * @author Matthew Baker
  * @brief Defines the handler for processing binary commands for the LED controller.
- * @version 0.2
+ * @version 0.3
  * @date 2025-07-16
  * @copyright Copyright (c) 2025
  *
@@ -19,7 +19,7 @@
 /**
  * @enum BleCommand
  * @brief Defines the binary command codes for controlling the LED strip.
- * @note These values MUST match the constants in the client application (e.g., Android app's LedControllerCommands.kt).
+ * @note These values MUST match the constants in the client application.
  */
 enum BleCommand : uint8_t
 {
@@ -89,8 +89,9 @@ public:
 
     /**
      * @brief Initiates the process of receiving all segment configurations.
+     * @param viaSerial True if the request was initiated via Serial.
      */
-    void handleSetAllSegmentConfigsCommand();
+    void handleSetAllSegmentConfigsCommand(bool viaSerial);
 
     /**
      * @brief Initiates the process of sending all available effect information.
@@ -104,12 +105,23 @@ public:
      */
     IncomingBatchState getIncomingBatchState() const { return _incomingBatchState; }
 
+    /**
+     * @brief Checks if a multi-part command was initiated via the Serial port.
+     * @return True if a serial-based batch command is active.
+     */
+    bool isSerialBatchActive() const { return _isSerialBatch; }
+
+    /**
+     * @brief Processes a JSON string to configure a single segment.
+     * @param jsonString The JSON configuration for the segment.
+     */
     void processSingleSegmentJson(const String &jsonString);
 
 private:
     String _incomingJsonBuffer;             ///< Buffer to accumulate incoming JSON data.
     IncomingBatchState _incomingBatchState; ///< Current state of the batch processing state machine.
     bool _isSerialEffectsTest;              ///< Flag to track if the effects test is initiated via serial.
+    bool _isSerialBatch;                    ///< Flag to track if a batch command was initiated via serial.
 
     volatile bool _ackReceived;                     ///< Flag to indicate if an ACK has been received.
     unsigned long _ackTimeoutStart;                 ///< Timestamp for starting ACK wait timeout.

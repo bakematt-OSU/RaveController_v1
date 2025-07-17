@@ -133,19 +133,19 @@ void loop()
 // --- Serial Command Processing ---
 void processSerial()
 {
-    // Check if BinaryCommandHandler is in a state expecting multi-part data
-    if (binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_COUNT ||
-        binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON ||
-        binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_EFFECT_ACK)
-    { // <-- ADDED THIS STATE
-
-        // If in a batch state, read raw bytes and pass them directly to the binary handler
+    // Check if a batch operation was started *from serial* and is currently active
+    if (binaryCommandHandler.isSerialBatchActive() &&
+        (binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_COUNT ||
+         binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON ||
+         binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_EFFECT_ACK))
+    {
+        // If in a batch state initiated by serial, read raw bytes
         if (Serial.available() > 0)
         {
+            // ... (this part of the code remains the same)
             const size_t max_read_len = 256;
             uint8_t temp_buffer[max_read_len];
             size_t bytes_read = Serial.readBytes(temp_buffer, min((size_t)Serial.available(), max_read_len));
-
             if (bytes_read > 0)
             {
                 Serial.print("Serial RX (Raw for Binary State): ");
@@ -164,7 +164,7 @@ void processSerial()
     }
     else
     {
-        // Otherwise, process as a regular text command
+        // Otherwise, always process as a regular text command
         if (Serial.available() > 0)
         {
             String command = Serial.readStringUntil('\n');
@@ -172,7 +172,8 @@ void processSerial()
             if (command.length() > 0)
             {
                 // Only print the received command if it's NOT the getalleffects test command
-                if (!command.equalsIgnoreCase("getalleffects")) {
+                if (!command.equalsIgnoreCase("getalleffects"))
+                {
                     Serial.print("Serial Command Received: '");
                     Serial.print(command);
                     Serial.println("'");

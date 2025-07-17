@@ -134,17 +134,18 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
         sendGenericAck = false;
         break;
     case CMD_SET_ALL_SEGMENT_CONFIGS:
-        handleSetAllSegmentConfigsCommand();
+        handleSetAllSegmentConfigsCommand(false);
         sendGenericAck = false;
         break;
     case CMD_GET_ALL_EFFECTS:
         handleGetAllEffectsCommand(false);
         sendGenericAck = false;
         break;
-     case CMD_SET_SINGLE_SEGMENT_JSON:
+    case CMD_SET_SINGLE_SEGMENT_JSON:
     {
         String jsonPayload;
-        for(size_t i = 0; i < payloadLen; i++) {
+        for (size_t i = 0; i < payloadLen; i++)
+        {
             jsonPayload += (char)payload[i];
         }
         processSingleSegmentJson(jsonPayload);
@@ -175,8 +176,9 @@ void BinaryCommandHandler::handleAck()
     _ackReceived = true;
 }
 
-void BinaryCommandHandler::handleSetAllSegmentConfigsCommand()
+void BinaryCommandHandler::handleSetAllSegmentConfigsCommand(bool viaSerial)
 {
+    _isSerialBatch = viaSerial; // Set the flag
     Serial.println("CMD: Set All Segment Configurations - Initiated.");
     if (strip)
     {
@@ -196,6 +198,7 @@ void BinaryCommandHandler::handleSetAllSegmentConfigsCommand()
 
 void BinaryCommandHandler::handleGetAllEffectsCommand(bool viaSerial)
 {
+    _isSerialBatch = viaSerial; // Add this line
     if (!viaSerial)
     {
         Serial.println("CMD: Get All Effects - Initiated.");
@@ -865,7 +868,8 @@ void BinaryCommandHandler::handleGetAllSegmentConfigs(bool viaSerial)
         BLEManager::getInstance().sendMessage(response);
     }
 }
-void BinaryCommandHandler::processSingleSegmentJson(const String &jsonString) {
+void BinaryCommandHandler::processSingleSegmentJson(const String &jsonString)
+{
     StaticJsonDocument<512> doc;
     DeserializationError error = deserializeJson(doc, jsonString);
     if (error)
@@ -904,9 +908,11 @@ void BinaryCommandHandler::processSingleSegmentJson(const String &jsonString) {
         {
             strip->addSection(start, end, name);
             targetSeg = strip->getSegments().back();
-        } else {
+        }
+        else
+        {
             // if found, update its range
-            targetSeg->setRange(start,end);
+            targetSeg->setRange(start, end);
         }
     }
 
@@ -931,16 +937,16 @@ void BinaryCommandHandler::processSingleSegmentJson(const String &jsonString) {
             JsonArray params = doc["params"];
             for (JsonObject param_data : params)
             {
-                const char* paramName = param_data["name"];
+                const char *paramName = param_data["name"];
                 if (paramName)
                 {
                     // Find the parameter in the effect
-                    for(int i = 0; i < targetSeg->activeEffect->getParameterCount(); i++)
+                    for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); i++)
                     {
-                        EffectParameter* p = targetSeg->activeEffect->getParameter(i);
+                        EffectParameter *p = targetSeg->activeEffect->getParameter(i);
                         if (strcmp(p->name, paramName) == 0)
                         {
-                             switch (p->type)
+                            switch (p->type)
                             {
                             case ParamType::INTEGER:
                                 targetSeg->activeEffect->setParameter(p->name, param_data["value"].as<int>());

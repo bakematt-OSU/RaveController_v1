@@ -2,7 +2,7 @@
  * @file SerialCommandHandler.h
  * @author Matthew Baker
  * @brief Defines a handler for processing text-based commands from the serial port.
- * @version 0.3
+ * @version 0.4
  * @date 2025-07-16
  * @copyright Copyright (c) 2025
  *
@@ -86,7 +86,10 @@ private:
     /** @brief Handles the serial command to set all segment configurations. */
     void handleSetAllSegmentConfigsSerial();
 
-    void handleSetSingleSegmentJson(const String& json); // Add this line
+    /** @brief Handles the serial command to get the parameters of an active effect on a segment. */
+    void handleGetParameters(const String &args);
+
+    void handleSetSingleSegmentJson(const String& json);
 };
 
 #endif // SERIAL_COMMAND_HANDLER_H

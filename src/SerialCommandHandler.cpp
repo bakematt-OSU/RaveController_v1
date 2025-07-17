@@ -125,6 +125,10 @@ void SerialCommandHandler::handleCommand(const String &command)
     {
         handleSetParameter(args);
     }
+    else if (cmd.equalsIgnoreCase("getparams")) // New command
+    {
+        handleGetParameters(args);
+    }
     else if (cmd.equalsIgnoreCase("batchconfig"))
     {
         handleBatchConfigJson(args);
@@ -162,11 +166,6 @@ void SerialCommandHandler::handleGetAllSegmentConfigsSerial()
 
 void SerialCommandHandler::handleGetAllEffectsSerial()
 {
-    // Serial.println("Serial Command: Initiating Get All Effects.");
-    // Serial.println("The Arduino will now send the total effect count.");
-    // Serial.println("After receiving the count, send 'ack' to receive the first effect.");
-    // Serial.println("Continue sending acknowledgements to receive subsequent effects.");
-
     // Call the binary command handler to start the process, specifying serial context
     binaryCommandHandler.handleGetAllEffectsCommand(true);
 }
@@ -178,16 +177,9 @@ void SerialCommandHandler::handleSetAllSegmentConfigsSerial()
     Serial.println("1. A 2-byte segment count (e.g., '0002' for 2 segments).");
     Serial.println("2. Each segment's full JSON configuration, one after another.");
     Serial.println("After each piece of data (count or JSON), the Arduino will send an ACK.");
-    Serial.println("Example sequence for 2 segments:");
-    Serial.println("Type '0002' (representing 2 segments) and press Enter.");
-    Serial.println("Wait for Arduino ACK.");
-    Serial.println("Paste JSON for segment 1 and press Enter.");
-    Serial.println("Wait for Arduino ACK.");
-    Serial.println("Paste JSON for segment 2 and press Enter.");
-    Serial.println("Wait for Arduino ACK.");
 
     // Set the state in BinaryCommandHandler to expect the count, then the JSONs.
-    binaryCommandHandler.handleSetAllSegmentConfigsCommand();
+    binaryCommandHandler.handleSetAllSegmentConfigsCommand(true);
 }
 
 // --- Specific Command Implementations (existing) ---
@@ -475,4 +467,77 @@ void SerialCommandHandler::handleSetSingleSegmentJson(const String& json)
 {
     Serial.println("Serial Command: Calling BinaryCommandHandler::processSingleSegmentJson() for Serial Input.");
     binaryCommandHandler.processSingleSegmentJson(json);
+}
+
+// --- New Function Implementation ---
+void SerialCommandHandler::handleGetParameters(const String &args)
+{
+    if (args.isEmpty()) {
+        Serial.println("ERR: Missing segment ID. Usage: getparams <seg_id>");
+        return;
+    }
+
+    int segIndex = args.toInt();
+
+    if (!strip || segIndex < 0 || segIndex >= (int)strip->getSegments().size())
+    {
+        Serial.println("ERR: Invalid segment index.");
+        return;
+    }
+
+    PixelStrip::Segment *seg = strip->getSegments()[segIndex];
+    if (!seg->activeEffect)
+    {
+        Serial.println("INFO: No active effect on this segment.");
+        return;
+    }
+
+    Serial.print("Parameters for Segment ");
+    Serial.print(segIndex);
+    Serial.print(" ('");
+    Serial.print(seg->getName());
+    Serial.print("') with effect '");
+    Serial.print(seg->activeEffect->getName());
+    Serial.println("':");
+
+    int paramCount = seg->activeEffect->getParameterCount();
+    if (paramCount == 0) {
+        Serial.println("  - This effect has no parameters.");
+        return;
+    }
+
+    for (int i = 0; i < paramCount; ++i)
+    {
+        EffectParameter *p = seg->activeEffect->getParameter(i);
+        Serial.print("  - ");
+        Serial.print(p->name);
+        Serial.print(": ");
+
+        switch (p->type)
+        {
+        case ParamType::INTEGER:
+            Serial.print(p->value.intValue);
+            Serial.println(" (integer)");
+            break;
+        case ParamType::FLOAT:
+            Serial.print(p->value.floatValue);
+            Serial.println(" (float)");
+            break;
+        case ParamType::COLOR:
+            Serial.print("0x");
+            // Print leading zeros for a clean 6-digit hex value
+            if (p->value.colorValue < 0x100000) Serial.print("0");
+            if (p->value.colorValue < 0x10000) Serial.print("0");
+            if (p->value.colorValue < 0x1000) Serial.print("0");
+            if (p->value.colorValue < 0x100) Serial.print("0");
+            if (p->value.colorValue < 0x10) Serial.print("0");
+            Serial.print(p->value.colorValue, HEX);
+            Serial.println(" (color)");
+            break;
+        case ParamType::BOOLEAN:
+            Serial.print(p->value.boolValue ? "true" : "false");
+            Serial.println(" (boolean)");
+            break;
+        }
+    }
 }
