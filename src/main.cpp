@@ -6,7 +6,7 @@
  * binary command handler, removing the old text-based serial handler.
  * It also re-introduces a serial command handler for debugging.
  *
- * @version 2.2 (Fixed Serial Binary State Handling)
+ * @version 2.3 (Fixed BLE Re-advertising)
  * @date 2025-07-16
  */
 #include <Arduino.h>
@@ -38,7 +38,7 @@ float accelX, accelY, accelZ;
 volatile bool triggerRipple = false;
 
 // Initialize the new global flag
-bool reAdvertisingMessagePrinted = false; //
+bool reAdvertisingMessagePrinted = false; 
 
 // --- Forward declarations for hardware processing ---
 void processAudio();
@@ -94,23 +94,34 @@ void setup()
 
 void loop()
 {
+    static unsigned long lastBleCheck = 0;
+    unsigned long currentMillis = millis();
+
     // Poll for BLE events
     bleManager.update();
 
-    // Periodically check if BLE is connected. If not, ensure advertising is restarted.
-    if (!bleManager.isConnected())
+    // Periodically check if BLE is connected. This is a robust fallback.
+    if (currentMillis - lastBleCheck > 500) // Check every 500ms
     {
-        BLE.advertise();
-        if (!reAdvertisingMessagePrinted)
+        lastBleCheck = currentMillis;
+        if (!bleManager.isConnected())
         {
-            Serial.println("BLE: Re-advertising due to detected disconnect.");
-            reAdvertisingMessagePrinted = true;
+            // FIX: Explicitly stop advertising before starting again.
+            BLE.stopAdvertise();
+            BLE.advertise();
+            
+            if (!reAdvertisingMessagePrinted)
+            {
+                Serial.println("BLE Polling: Not connected. Attempting to re-advertise.");
+                reAdvertisingMessagePrinted = true;
+            }
+        }
+        else
+        {
+            reAdvertisingMessagePrinted = false;
         }
     }
-    else
-    {
-        reAdvertisingMessagePrinted = false;
-    }
+
 
     // Poll for Serial commands
     processSerial();
@@ -135,17 +146,17 @@ void processSerial()
 {
     // Check if a batch operation was started *from serial* and is currently active
     if (binaryCommandHandler.isSerialBatchActive() &&
-        (binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_COUNT ||
-         binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON ||
-         binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_EFFECT_ACK))
+       (binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_COUNT ||
+        binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON ||
+        binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_EFFECT_ACK))
     {
         // If in a batch state initiated by serial, read raw bytes
         if (Serial.available() > 0)
         {
-            // ... (this part of the code remains the same)
             const size_t max_read_len = 256;
             uint8_t temp_buffer[max_read_len];
             size_t bytes_read = Serial.readBytes(temp_buffer, min((size_t)Serial.available(), max_read_len));
+
             if (bytes_read > 0)
             {
                 Serial.print("Serial RX (Raw for Binary State): ");
@@ -164,16 +175,14 @@ void processSerial()
     }
     else
     {
-        // Otherwise, always process as a regular text command
+        // Otherwise, process as a regular text command
         if (Serial.available() > 0)
         {
             String command = Serial.readStringUntil('\n');
             command.trim();
             if (command.length() > 0)
             {
-                // Only print the received command if it's NOT the getalleffects test command
-                if (!command.equalsIgnoreCase("getalleffects"))
-                {
+                if (!command.equalsIgnoreCase("getalleffects")) {
                     Serial.print("Serial Command Received: '");
                     Serial.print(command);
                     Serial.println("'");
@@ -183,55 +192,6 @@ void processSerial()
         }
     }
 }
-
-// void processSerial()
-// {
-//     // Check if BinaryCommandHandler is in a state expecting multi-part data
-//     if (binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_COUNT ||
-//         binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON ||
-//         binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_EFFECT_ACK)
-//     { // <-- ADDED THIS STATE
-
-//         // If in a batch state, read raw bytes and pass them directly to the binary handler
-//         if (Serial.available() > 0)
-//         {
-//             const size_t max_read_len = 256;
-//             uint8_t temp_buffer[max_read_len];
-//             size_t bytes_read = Serial.readBytes(temp_buffer, min((size_t)Serial.available(), max_read_len));
-
-//             if (bytes_read > 0)
-//             {
-//                 Serial.print("Serial RX (Raw for Binary State): ");
-//                 for (size_t i = 0; i < bytes_read; i++)
-//                 {
-//                     Serial.print("0x");
-//                     Serial.print(temp_buffer[i], HEX);
-//                     Serial.print(" ");
-//                 }
-//                 Serial.println();
-
-//                 // Pass raw bytes to the binary command handler
-//                 binaryCommandHandler.handleCommand(temp_buffer, bytes_read);
-//             }
-//         }
-//     }
-//     else
-//     {
-//         // Otherwise, process as a regular text command
-//         if (Serial.available() > 0)
-//         {
-//             String command = Serial.readStringUntil('\n');
-//             command.trim();
-//             if (command.length() > 0)
-//             {
-//                 Serial.print("Serial Command Received: '");
-//                 Serial.print(command);
-//                 Serial.println("'");
-//                 serialCommandHandler.handleCommand(command);
-//             }
-//         }
-//     }
-// }
 
 // --- Hardware Processing Functions ---
 void processAudio()
