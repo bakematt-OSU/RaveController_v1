@@ -11,7 +11,7 @@ private:
     // Helper functions to parse arguments from the command string
     String getWord(const String& text, int index);
     String getRestOfCommand(const String& text, int startIndex);
-    
+
     // Command-specific handler methods
     void handleListEffects();
     void handleGetStatus();
@@ -28,7 +28,10 @@ private:
     void handleBatchConfig(const String& json);
 
     // Existing handler for serial testing of get all segment configs
-    void handleGetAllSegmentConfigsSerial(); 
+    void handleGetAllSegmentConfigsSerial();
+
+    // Handler for serial testing of get all effect configs
+    void handleGetAllEffectsSerial();
 
     // <<-- ADD THIS NEW LINE -->>
     void handleSetAllSegmentConfigsSerial();

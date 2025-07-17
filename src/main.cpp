@@ -6,8 +6,8 @@
  * binary command handler, removing the old text-based serial handler.
  * It also re-introduces a serial command handler for debugging.
  *
- * @version 2.1
- * @date 2025-07-15
+ * @version 2.2 (Fixed Serial Binary State Handling)
+ * @date 2025-07-16
  */
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -20,15 +20,15 @@
 #include "ConfigManager.h"
 
 // --- Global Object Instances ---
-BLEManager& bleManager = BLEManager::getInstance();
+BLEManager &bleManager = BLEManager::getInstance();
 BinaryCommandHandler binaryCommandHandler;
 SerialCommandHandler serialCommandHandler; // Create an instance of the serial handler
 
 // --- Global Variable Definitions ---
-PixelStrip* strip = nullptr;
-PixelStrip::Segment* seg = nullptr;
+PixelStrip *strip = nullptr;
+PixelStrip::Segment *seg = nullptr;
 uint16_t LED_COUNT = 150; // Default value, will be overwritten by config
-const char* STATE_FILE = "/littlefs/state.json";
+const char *STATE_FILE = "/littlefs/state.json";
 LittleFS_MBED myFS;
 
 AudioTrigger<SAMPLES> audioTrigger;
@@ -52,20 +52,24 @@ void processSerial(); // Add forward declaration for serial processing
  * @param data Pointer to the received byte array.
  * @param len Length of the byte array.
  */
-void onBleCommandReceived(const uint8_t* data, size_t len) {
+void onBleCommandReceived(const uint8_t *data, size_t len)
+{
     binaryCommandHandler.handleCommand(data, len);
 }
 
-void setup() {
+void setup()
+{
     initSerial();
     initFS();
 
     // Load the configuration from LittleFS
     String configJson = loadConfig();
-    if (configJson.length() > 0) {
+    if (configJson.length() > 0)
+    {
         StaticJsonDocument<256> doc;
         DeserializationError error = deserializeJson(doc, configJson);
-        if (error == DeserializationError::Ok) {
+        if (error == DeserializationError::Ok)
+        {
             LED_COUNT = doc["led_count"] | 150; // Load LED count or use default
         }
     }
@@ -76,7 +80,8 @@ void setup() {
     initLEDs();
 
     // If a full configuration was saved, apply it now
-    if (configJson.length() > 0) {
+    if (configJson.length() > 0)
+    {
         Serial.println("Restoring full configuration from saved state...");
         handleBatchConfigJson(configJson);
     }
@@ -87,21 +92,24 @@ void setup() {
     Serial.println("Setup complete. Entering main loop...");
 }
 
-void loop() {
+void loop()
+{
     // Poll for BLE events
     bleManager.update();
 
     // Periodically check if BLE is connected. If not, ensure advertising is restarted.
-    // This addresses scenarios where the BLE disconnect event might not be reliably captured.
-    if (!bleManager.isConnected()) {
+    if (!bleManager.isConnected())
+    {
         BLE.advertise();
-        if (!reAdvertisingMessagePrinted) { // Only print if the message hasn't been printed yet
-            Serial.println("BLE: Re-advertising due to detected disconnect."); //
-            reAdvertisingMessagePrinted = true; // Set flag to true after printing
+        if (!reAdvertisingMessagePrinted)
+        {
+            Serial.println("BLE: Re-advertising due to detected disconnect.");
+            reAdvertisingMessagePrinted = true;
         }
-    } else {
-        // If connected, reset the flag so the message can be printed again on next disconnect
-        reAdvertisingMessagePrinted = false; //
+    }
+    else
+    {
+        reAdvertisingMessagePrinted = false;
     }
 
     // Poll for Serial commands
@@ -112,8 +120,10 @@ void loop() {
     processAccel();
 
     // Update all LED segments and show the result
-    if (strip) {
-        for (auto* s : strip->getSegments()) {
+    if (strip)
+    {
+        for (auto *s : strip->getSegments())
+        {
             s->update();
         }
         strip->show();
@@ -121,63 +131,121 @@ void loop() {
 }
 
 // --- Serial Command Processing ---
-void processSerial() {
+void processSerial()
+{
     // Check if BinaryCommandHandler is in a state expecting multi-part data
     if (binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_COUNT ||
-        binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON) {
-        
+        binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON ||
+        binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_EFFECT_ACK)
+    { // <-- ADDED THIS STATE
+
         // If in a batch state, read raw bytes and pass them directly to the binary handler
-        if (Serial.available() > 0) {
-            // Read all available bytes into a temporary buffer
-            const size_t max_read_len = 256; // Max buffer size for serial read
+        if (Serial.available() > 0)
+        {
+            const size_t max_read_len = 256;
             uint8_t temp_buffer[max_read_len];
             size_t bytes_read = Serial.readBytes(temp_buffer, min((size_t)Serial.available(), max_read_len));
-            
-            if (bytes_read > 0) {
-                Serial.print("Serial RX (Raw): ");
-                Serial.print(bytes_read);
-                Serial.print(" bytes - ");
-                for (size_t i = 0; i < min(bytes_read, (size_t)32); i++) {
-                    if (temp_buffer[i] >= 32 && temp_buffer[i] <= 126) {
-                        Serial.print((char)temp_buffer[i]);
-                    } else {
-                        Serial.print("[0x");
-                        Serial.print(temp_buffer[i], HEX);
-                        Serial.print("]");
-                    }
+
+            if (bytes_read > 0)
+            {
+                Serial.print("Serial RX (Raw for Binary State): ");
+                for (size_t i = 0; i < bytes_read; i++)
+                {
+                    Serial.print("0x");
+                    Serial.print(temp_buffer[i], HEX);
+                    Serial.print(" ");
                 }
-                if (bytes_read > 32) Serial.print("...");
                 Serial.println();
 
                 // Pass raw bytes to the binary command handler
                 binaryCommandHandler.handleCommand(temp_buffer, bytes_read);
             }
         }
-    } else {
+    }
+    else
+    {
         // Otherwise, process as a regular text command
-        if (Serial.available() > 0) {
+        if (Serial.available() > 0)
+        {
             String command = Serial.readStringUntil('\n');
             command.trim();
-            if (command.length() > 0) {
-                Serial.print("Serial Command Received: '");
-                Serial.print(command);
-                Serial.println("'");
+            if (command.length() > 0)
+            {
+                // Only print the received command if it's NOT the getalleffects test command
+                if (!command.equalsIgnoreCase("getalleffects")) {
+                    Serial.print("Serial Command Received: '");
+                    Serial.print(command);
+                    Serial.println("'");
+                }
                 serialCommandHandler.handleCommand(command);
             }
         }
     }
 }
 
+// void processSerial()
+// {
+//     // Check if BinaryCommandHandler is in a state expecting multi-part data
+//     if (binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_COUNT ||
+//         binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON ||
+//         binaryCommandHandler.getIncomingBatchState() == IncomingBatchState::EXPECTING_EFFECT_ACK)
+//     { // <-- ADDED THIS STATE
+
+//         // If in a batch state, read raw bytes and pass them directly to the binary handler
+//         if (Serial.available() > 0)
+//         {
+//             const size_t max_read_len = 256;
+//             uint8_t temp_buffer[max_read_len];
+//             size_t bytes_read = Serial.readBytes(temp_buffer, min((size_t)Serial.available(), max_read_len));
+
+//             if (bytes_read > 0)
+//             {
+//                 Serial.print("Serial RX (Raw for Binary State): ");
+//                 for (size_t i = 0; i < bytes_read; i++)
+//                 {
+//                     Serial.print("0x");
+//                     Serial.print(temp_buffer[i], HEX);
+//                     Serial.print(" ");
+//                 }
+//                 Serial.println();
+
+//                 // Pass raw bytes to the binary command handler
+//                 binaryCommandHandler.handleCommand(temp_buffer, bytes_read);
+//             }
+//         }
+//     }
+//     else
+//     {
+//         // Otherwise, process as a regular text command
+//         if (Serial.available() > 0)
+//         {
+//             String command = Serial.readStringUntil('\n');
+//             command.trim();
+//             if (command.length() > 0)
+//             {
+//                 Serial.print("Serial Command Received: '");
+//                 Serial.print(command);
+//                 Serial.println("'");
+//                 serialCommandHandler.handleCommand(command);
+//             }
+//         }
+//     }
+// }
+
 // --- Hardware Processing Functions ---
-void processAudio() {
-    if (samplesRead > 0) {
+void processAudio()
+{
+    if (samplesRead > 0)
+    {
         audioTrigger.update(sampleBuffer);
         samplesRead = 0;
     }
 }
 
-void processAccel() {
-    if (IMU.accelerationAvailable()) {
+void processAccel()
+{
+    if (IMU.accelerationAvailable())
+    {
         IMU.readAcceleration(accelX, accelY, accelZ);
     }
 }
