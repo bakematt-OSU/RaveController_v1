@@ -12,6 +12,7 @@ class PixelStrip
 {
 public:
     class Segment; // Forward declaration
+    ~PixelStrip(); // Destructor to clean up segments
     uint16_t getLedCount() const;
 
     PixelStrip(uint8_t pin, uint16_t ledCount, uint8_t brightness = 50, uint8_t numSections = 0);

@@ -323,13 +323,33 @@ void SerialCommandHandler::handleGetEffectInfo(char *args)
         EffectParameter *p = tempEffect->getParameter(i);
         JsonObject p_obj = params.createNestedObject();
         p_obj["name"] = p->name;
-        // ... (rest of JSON creation is the same)
+
+        // *** START of ADDED/CORRECTED CODE ***
+        switch (p->type)
+        {
+        case ParamType::INTEGER:
+            p_obj["type"] = "integer";
+            break;
+        case ParamType::FLOAT:
+            p_obj["type"] = "float";
+            break;
+        case ParamType::COLOR:
+            p_obj["type"] = "color";
+            break;
+        case ParamType::BOOLEAN:
+            p_obj["type"] = "boolean";
+            break;
+        }
+        // Also include min/max for the Python script to use
+        p_obj["min_val"] = p->min_val;
+        p_obj["max_val"] = p->max_val;
+        // *** END of ADDED/CORRECTED CODE ***
     }
+
     serializeJson(doc, Serial);
     Serial.println();
     delete tempEffect;
 }
-
 void SerialCommandHandler::handleSetParameter(char *args)
 {
     if (!args)

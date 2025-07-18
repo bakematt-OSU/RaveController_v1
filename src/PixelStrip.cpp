@@ -1,5 +1,16 @@
 #include "PixelStrip.h"
 
+// Destructor to clean up segments
+PixelStrip::~PixelStrip()
+{
+    for (auto* s : segments_)
+    {
+        delete s;
+    }
+    segments_.clear();
+}
+
+
 //================================================================================
 // PixelStrip Class Methods
 //================================================================================
