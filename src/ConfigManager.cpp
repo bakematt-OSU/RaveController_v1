@@ -14,7 +14,7 @@ extern BLEManager &bleManager;
 // --- Saves the complete strip configuration ---
 bool saveConfig()
 {
-    StaticJsonDocument<1024> doc; 
+    StaticJsonDocument<2048> doc;
     doc["led_count"] = LED_COUNT;
 
     JsonArray segments = doc.createNestedArray("segments");
@@ -28,18 +28,48 @@ bool saveConfig()
             segObj["startLed"] = s->startIndex();
             segObj["endLed"] = s->endIndex();
             segObj["brightness"] = s->getBrightness();
-            segObj["effect"] = s->activeEffect ? s->activeEffect->getName() : "None";
+            
+            if (s->activeEffect) {
+                segObj["effect"] = s->activeEffect->getName();
+                
+                for (int i = 0; i < s->activeEffect->getParameterCount(); ++i)
+                {
+                    EffectParameter *p = s->activeEffect->getParameter(i);
+                    switch (p->type)
+                    {
+                    case ParamType::INTEGER:
+                        segObj[p->name] = p->value.intValue;
+                        break;
+                    case ParamType::FLOAT:
+                        segObj[p->name] = p->value.floatValue;
+                        break;
+                    case ParamType::COLOR:
+                        segObj[p->name] = p->value.colorValue;
+                        break;
+                    case ParamType::BOOLEAN:
+                        segObj[p->name] = p->value.boolValue;
+                        break;
+                    }
+                }
+            } else {
+                segObj["effect"] = "None";
+            }
         }
     }
 
     FILE *file = fopen(STATE_FILE, "w");
     if (file)
     {
-        String output;
-        serializeJson(doc, output);
-        fprintf(file, "%s", output.c_str());
+        // MODIFIED: Use a static buffer to prevent stack overflow.
+        static char serializationBuffer[2048];
+        size_t bytesWritten = serializeJson(doc, serializationBuffer, sizeof(serializationBuffer));
+        
+        if (bytesWritten > 0) {
+            fprintf(file, "%s", serializationBuffer);
+        }
+        
         fclose(file);
-        Serial.println("OK: Config saved."); // Use a consistent OK message
+        Serial.println("OK: Config saved.");
         return true;
     }
     else
@@ -50,32 +80,17 @@ bool saveConfig()
 }
 
 // --- Loads the configuration from the filesystem ---
-String loadConfig()
+size_t loadConfig(char* buffer, size_t bufferSize)
 {
     FILE *file = fopen(STATE_FILE, "r");
     if (file)
     {
-        fseek(file, 0, SEEK_END);
-        long fileSize = ftell(file);
-        fseek(file, 0, SEEK_SET);
-
-        char *buf = new char[fileSize + 1];
-        fread(buf, 1, fileSize, file);
+        size_t bytesRead = fread(buffer, 1, bufferSize - 1, file);
         fclose(file);
-        buf[fileSize] = '\0';
-
-        String json(buf);
-        delete[] buf;
-        
-        // FIX: Removed the "Configuration file loaded" message to ensure
-        // that only the raw JSON is returned for clean parsing.
-        return json;
+        buffer[bytesRead] = '\0';
+        return bytesRead;
     }
-    else
-    {
-        // Return an empty string if the file doesn't exist.
-        return "";
-    }
+    return 0;
 }
 
 // --- Sets a new LED count, saves it, and restarts the device ---
@@ -89,12 +104,7 @@ void setLedCount(uint16_t newSize)
             Serial.print("LED count set to ");
             Serial.print(newSize);
             Serial.println(". Restarting to apply changes.");
-
-            // FIX: Add a sufficient delay to ensure the serial message is sent
-            // and the filesystem commits the file before restarting. This
-            // helps prevent serial port errors on the host computer.
             delay(200); 
-            
             NVIC_SystemReset();
         }
         else
@@ -109,9 +119,9 @@ void setLedCount(uint16_t newSize)
 }
 
 // --- Processes a JSON string to configure segments and effects ---
-void handleBatchConfigJson(const String &json)
+void handleBatchConfigJson(const char* json)
 {
-    StaticJsonDocument<1024> doc;
+    StaticJsonDocument<2048> doc;
     DeserializationError error = deserializeJson(doc, json);
 
     if (error)
@@ -128,28 +138,54 @@ void handleBatchConfigJson(const String &json)
         JsonArray segments = doc["segments"];
         for (JsonObject segData : segments)
         {
-            String name = segData["name"] | "";
+            const char* name = segData["name"] | "";
             uint16_t start = segData["startLed"];
             uint16_t end = segData["endLed"];
             uint8_t brightness = segData["brightness"] | 255;
-            String effectNameStr = segData["effect"] | "SolidColor";
+            const char* effectNameStr = segData["effect"] | "SolidColor";
 
-            PixelStrip::Segment *newSeg;
-            if (name.equalsIgnoreCase("all"))
+            PixelStrip::Segment *targetSeg;
+            if (strcmp(name, "all") == 0)
             {
-                newSeg = strip->getSegments()[0];
-                newSeg->setRange(start, end);
+                targetSeg = strip->getSegments()[0];
+                targetSeg->setRange(start, end);
             }
             else
             {
                 strip->addSection(start, end, name);
-                newSeg = strip->getSegments().back();
+                targetSeg = strip->getSegments().back();
             }
 
-            newSeg->setBrightness(brightness);
-            if (newSeg->activeEffect)
-                delete newSeg->activeEffect;
-            newSeg->activeEffect = createEffectByName(effectNameStr, newSeg);
+            targetSeg->setBrightness(brightness);
+            if (targetSeg->activeEffect)
+                delete targetSeg->activeEffect;
+            targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
+
+            if (targetSeg->activeEffect)
+            {
+                for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i)
+                {
+                    EffectParameter *p = targetSeg->activeEffect->getParameter(i);
+                    if (segData.containsKey(p->name))
+                    {
+                        switch (p->type)
+                        {
+                        case ParamType::INTEGER:
+                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<int>());
+                            break;
+                        case ParamType::FLOAT:
+                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<float>());
+                            break;
+                        case ParamType::COLOR:
+                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<uint32_t>());
+                            break;
+                        case ParamType::BOOLEAN:
+                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<bool>());
+                            break;
+                        }
+                    }
+                }
+            }
         }
         strip->show();
         Serial.println("OK: Batch configuration applied.");

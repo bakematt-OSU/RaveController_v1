@@ -115,10 +115,11 @@ public:
      * @brief Processes a JSON string to configure a single segment.
      * @param jsonString The JSON configuration for the segment.
      */
-    void processSingleSegmentJson(const String &jsonString);
+    void processSingleSegmentJson(const char* jsonString); // MODIFIED: Accepts const char*
 
 private:
-    String _incomingJsonBuffer;             ///< Buffer to accumulate incoming JSON data.
+    char _incomingJsonBuffer[1024];         // MODIFIED: Changed from String to fixed-size char array
+    size_t _jsonBufferIndex;                // MODIFIED: Added to track current position in the buffer
     IncomingBatchState _incomingBatchState; ///< Current state of the batch processing state machine.
     bool _isSerialEffectsTest;              ///< Flag to track if the effects test is initiated via serial.
     bool _isSerialBatch;                    ///< Flag to track if a batch command was initiated via serial.

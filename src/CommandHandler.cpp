@@ -104,8 +104,8 @@ void CommandHandler::handleCommand(const String &command)
     }
     else if (cmd.equalsIgnoreCase("batchconfig"))
     {
-        // This function already has its own serial prints and BLE responses
-        handleBatchConfigJson(args);
+        // MODIFIED: Use .c_str() to convert String to const char*
+        handleBatchConfigJson(args.c_str());
     }
     else
     {
@@ -138,7 +138,6 @@ void CommandHandler::handleGetStatus()
 {
     StaticJsonDocument<1024> doc;
     doc["led_count"] = LED_COUNT;
-    // doc["brightness"] = strip ? strip->getSegments()[0]->getBrightness() : 0; // <-- REMOVED THIS LINE
 
     JsonArray effects = doc.createNestedArray("available_effects");
     for (int i = 0; i < EFFECT_COUNT; ++i)
@@ -156,7 +155,7 @@ void CommandHandler::handleGetStatus()
             segObj["name"] = s->getName();
             segObj["startLed"] = s->startIndex();
             segObj["endLed"] = s->endIndex();
-            segObj["brightness"] = s->getBrightness(); // This is the correct place for brightness
+            segObj["brightness"] = s->getBrightness();
             segObj["effect"] = s->activeEffect ? s->activeEffect->getName() : "None";
         }
     }
@@ -172,10 +171,22 @@ void CommandHandler::handleGetStatus()
 
 void CommandHandler::handleGetConfig()
 {
-    String config = loadConfig();
-    Serial.println("-> DEBUG: Getting config from FS.");
-    Serial.println(config);
-    bleManager->sendMessage(config);
+    // MODIFIED: Use the new loadConfig with a char buffer
+    char configBuffer[1024];
+    size_t configSize = loadConfig(configBuffer, sizeof(configBuffer));
+    if (configSize > 0)
+    {
+        Serial.println("-> DEBUG: Getting config from FS.");
+        Serial.println(configBuffer);
+        bleManager->sendMessage(configBuffer);
+    }
+    else
+    {
+        const char* emptyConfig = "{\"led_count\":0,\"segments\":[]}";
+        Serial.println("-> DEBUG: No config file found.");
+        Serial.println(emptyConfig);
+        bleManager->sendMessage(emptyConfig);
+    }
 }
 
 void CommandHandler::handleSaveConfig()
@@ -298,14 +309,11 @@ void CommandHandler::handleSetEffect(const String &args)
         }
         seg->activeEffect = newEffect;
 
-        // --- FIX: Force an immediate update and show ---
-        // This ensures the new effect is rendered at least once right away.
         if (strip)
         {
             seg->update();
             strip->show();
         }
-        // --- End of Fix ---
 
         Serial.println("-> OK: Effect set.");
         bleManager->sendMessage("{\"status\":\"OK\", \"message\":\"Effect set\"}");
@@ -340,6 +348,9 @@ void CommandHandler::handleGetEffectInfo(const String &args)
     JsonArray params = doc.createNestedArray("params");
     for (int i = 0; i < seg->activeEffect->getParameterCount(); ++i)
     {
+        EffectParameter *p = seg->activeEffect->getParameter(i);
+        JsonObject p_obj = params.createNestedObject();
+        p_obj["name"] = p->name;
         // ... (JSON object creation is the same)
     }
     String response;

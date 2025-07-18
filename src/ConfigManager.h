@@ -8,8 +8,12 @@
 
 void setLedCount(uint16_t newSize);
 bool saveConfig();
-String loadConfig();
-void handleBatchConfigJson(const String& json);
+
+// Corrected Declaration: Takes a buffer and returns the size.
+size_t loadConfig(char* buffer, size_t bufferSize);
+
+// Corrected Declaration: Takes a C-style string.
+void handleBatchConfigJson(const char* json);
 
 
 #endif // CONFIG_MANAGER_H

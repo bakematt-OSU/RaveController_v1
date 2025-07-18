@@ -5,17 +5,14 @@
 #include <ArduinoJson.h>
 #include "PixelStrip.h"
 #include "effects/BaseEffect.h"
-
-// CORRECTED: Only include the master effects header to prevent redefinitions.
 #include "effects/Effects.h"
+#include "ConfigManager.h" // Use the declarations from the official manager
 
 // --- Function Declarations ---
-void setLedCount(uint16_t newSize); // New function
-void handleBatchConfigJson(const String &json);
-bool saveConfig();
-String  loadConfig();
-void handleBinarySerial(const uint8_t *data, size_t len);
-void handleCommandLine(const String &line);
+// All function declarations are now managed by their respective headers (e.g., ConfigManager.h)
+// We only need to declare functions specific to this older "Processes" architecture if any remain.
+
+// For legacy compatibility if still used elsewhere:
 BaseEffect* createEffectByName(const String& name, PixelStrip::Segment *seg);
 PixelStrip::Segment* findSegmentByIndex(const String& args, String& remainingArgs);
 const char *getBLECmdName(uint8_t cmd);

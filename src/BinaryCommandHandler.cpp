@@ -10,9 +10,10 @@ extern uint16_t LED_COUNT;
 
 // Constructor
 BinaryCommandHandler::BinaryCommandHandler()
-    : _incomingJsonBuffer(""),
-      _incomingBatchState(IncomingBatchState::IDLE),
+    : _incomingBatchState(IncomingBatchState::IDLE),
+      _jsonBufferIndex(0), // Initialize buffer index
       _isSerialEffectsTest(false),
+      _isSerialBatch(false),
       _ackReceived(false),
       _ackTimeoutStart(0),
       _expectedSegmentsToReceive(0),
@@ -20,6 +21,8 @@ BinaryCommandHandler::BinaryCommandHandler()
       _expectedEffectsToSend(0),
       _effectsSentInBatch(0)
 {
+    // Ensure the buffer is cleared on startup
+    memset(_incomingJsonBuffer, 0, sizeof(_incomingJsonBuffer));
 }
 
 // Main Command Router
@@ -125,7 +128,8 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
         break;
     case CMD_BATCH_CONFIG:
         _incomingBatchState = IncomingBatchState::EXPECTING_BATCH_CONFIG_JSON;
-        _incomingJsonBuffer = "";
+        _jsonBufferIndex = 0;
+        memset(_incomingJsonBuffer, 0, sizeof(_incomingJsonBuffer));
         processIncomingAllSegmentsData(payload, payloadLen);
         sendGenericAck = false;
         break;
@@ -143,11 +147,9 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
         break;
     case CMD_SET_SINGLE_SEGMENT_JSON:
     {
-        String jsonPayload;
-        for (size_t i = 0; i < payloadLen; i++)
-        {
-            jsonPayload += (char)payload[i];
-        }
+        char jsonPayload[payloadLen + 1];
+        memcpy(jsonPayload, payload, payloadLen);
+        jsonPayload[payloadLen] = '\0';
         processSingleSegmentJson(jsonPayload);
         break;
     }
@@ -186,7 +188,8 @@ void BinaryCommandHandler::handleSetAllSegmentConfigsCommand(bool viaSerial)
         Serial.println("OK: Cleared existing user segments.");
     }
     _incomingBatchState = IncomingBatchState::EXPECTING_ALL_SEGMENTS_COUNT;
-    _incomingJsonBuffer = "";
+    _jsonBufferIndex = 0;
+    memset(_incomingJsonBuffer, 0, sizeof(_incomingJsonBuffer));
     _expectedSegmentsToReceive = 0;
     _segmentsReceivedInBatch = 0;
     uint8_t ack_payload[] = {CMD_ACK};
@@ -194,11 +197,9 @@ void BinaryCommandHandler::handleSetAllSegmentConfigsCommand(bool viaSerial)
     Serial.println("-> Sent ACK for CMD_SET_ALL_SEGMENT_CONFIGS initiation.");
 }
 
-// src/BinaryCommandHandler.cpp
-
 void BinaryCommandHandler::handleGetAllEffectsCommand(bool viaSerial)
 {
-    _isSerialBatch = viaSerial; // Add this line
+    _isSerialBatch = viaSerial;
     if (!viaSerial)
     {
         Serial.println("CMD: Get All Effects - Initiated.");
@@ -229,162 +230,81 @@ void BinaryCommandHandler::handleGetAllEffectsCommand(bool viaSerial)
 
 void BinaryCommandHandler::processIncomingAllSegmentsData(const uint8_t *data, size_t len)
 {
+    // Append new data to the buffer, checking for overflow
+    if (_jsonBufferIndex + len >= sizeof(_incomingJsonBuffer))
+    {
+        Serial.println("ERR: JSON buffer overflow!");
+        _incomingBatchState = IncomingBatchState::IDLE;
+        _jsonBufferIndex = 0;
+        memset(_incomingJsonBuffer, 0, sizeof(_incomingJsonBuffer));
+        return;
+    }
+    memcpy(_incomingJsonBuffer + _jsonBufferIndex, data, len);
+    _jsonBufferIndex += len;
+    _incomingJsonBuffer[_jsonBufferIndex] = '\0'; // Ensure null termination
+
     if (_incomingBatchState == IncomingBatchState::EXPECTING_BATCH_CONFIG_JSON)
     {
-        for (size_t i = 0; i < len; i++)
-        {
-            _incomingJsonBuffer += (char)data[i];
-        }
-        if (_incomingJsonBuffer.endsWith("}]}"))
+        if (strstr(_incomingJsonBuffer, "]}}") != nullptr)
         {
             Serial.println("Batch config fully received. Parsing...");
             Serial.println(_incomingJsonBuffer);
             handleBatchConfigJson(_incomingJsonBuffer);
             _incomingBatchState = IncomingBatchState::IDLE;
-            _incomingJsonBuffer = "";
+            _jsonBufferIndex = 0;
+            memset(_incomingJsonBuffer, 0, sizeof(_incomingJsonBuffer));
         }
     }
     else if (_incomingBatchState == IncomingBatchState::EXPECTING_ALL_SEGMENTS_COUNT)
     {
-        if (len >= 2)
+        if (_jsonBufferIndex >= 2)
         {
-            _expectedSegmentsToReceive = (data[0] << 8) | data[1];
+            _expectedSegmentsToReceive = (_incomingJsonBuffer[0] << 8) | _incomingJsonBuffer[1];
             Serial.print("Expected segments to receive: ");
             Serial.println(_expectedSegmentsToReceive);
             _segmentsReceivedInBatch = 0;
             _incomingBatchState = IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON;
-            _incomingJsonBuffer = "";
+            _jsonBufferIndex = 0;
+            memset(_incomingJsonBuffer, 0, sizeof(_incomingJsonBuffer));
             uint8_t ack_payload[] = {CMD_ACK};
             BLEManager::getInstance().sendMessage(ack_payload, 1);
             Serial.println("-> Sent ACK for segment count.");
         }
-        else
-        {
-            Serial.println("ERR: Payload too short for segment count.");
-            _incomingBatchState = IncomingBatchState::IDLE;
-            BLEManager::getInstance().sendMessage("{\"error\":\"Invalid segment count payload\"}");
-        }
     }
     else if (_incomingBatchState == IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON)
     {
-        for (size_t i = 0; i < len; i++)
-        {
-            _incomingJsonBuffer += (char)data[i];
-        }
-        int startIndex = _incomingJsonBuffer.indexOf('{');
-        int endIndex = _incomingJsonBuffer.lastIndexOf('}');
-        if (startIndex != -1 && endIndex != -1 && endIndex > startIndex)
-        {
-            String jsonString = _incomingJsonBuffer.substring(startIndex, endIndex + 1);
-            Serial.print("Received segment JSON: ");
-            Serial.println(jsonString);
-            StaticJsonDocument<512> doc;
-            DeserializationError error = deserializeJson(doc, jsonString);
-            if (error)
-            {
-                Serial.print("ERR: JSON parse error for segment config: ");
-                Serial.println(error.c_str());
-                BLEManager::getInstance().sendMessage("{\"error\":\"JSON_PARSE_ERROR_SEGMENT\"}");
-                _incomingBatchState = IncomingBatchState::IDLE;
-                _incomingJsonBuffer = "";
-                return;
-            }
-            String name = doc["name"] | "";
-            uint16_t start = doc["startLed"] | 0;
-            uint16_t end = doc["endLed"] | 0;
-            uint8_t brightness = doc["brightness"] | 255;
-            String effectNameStr = doc["effect"] | "SolidColor";
-            uint8_t segmentId = doc["id"] | 0;
-            PixelStrip::Segment *targetSeg = nullptr;
-            if (name.equalsIgnoreCase("all"))
-            {
-                targetSeg = strip->getSegments()[0];
-                targetSeg->setRange(start, end);
-            }
-            else
-            {
-                for (auto *s : strip->getSegments())
-                {
-                    if (s->getId() == segmentId)
-                    {
-                        targetSeg = s;
-                        break;
-                    }
-                }
-                if (!targetSeg)
-                {
-                    strip->addSection(start, end, name);
-                    targetSeg = strip->getSegments().back();
-                }
-                targetSeg->setRange(start, end);
-            }
-            if (targetSeg)
-            {
-                targetSeg->setBrightness(brightness);
-                if (targetSeg->activeEffect)
-                {
-                    if (!String(targetSeg->activeEffect->getName()).equalsIgnoreCase(effectNameStr))
-                    {
-                        delete targetSeg->activeEffect;
-                        targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
-                    }
-                }
-                else
-                {
-                    targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
-                }
+        char *start = strchr(_incomingJsonBuffer, '{');
+        char *end = strrchr(_incomingJsonBuffer, '}');
 
-                // *** FIX START: Correctly parse the 'parameters' object ***
-                if (targetSeg->activeEffect && doc.containsKey("parameters"))
-                {
-                    JsonObject paramsObj = doc["parameters"].as<JsonObject>();
-                    for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i)
-                    {
-                        EffectParameter *p = targetSeg->activeEffect->getParameter(i);
-                        if (paramsObj.containsKey(p->name))
-                        {
-                            switch (p->type)
-                            {
-                            case ParamType::INTEGER:
-                                targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<int>());
-                                break;
-                            case ParamType::FLOAT:
-                                targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<float>());
-                                break;
-                            case ParamType::COLOR:
-                                targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<uint32_t>());
-                                break;
-                            case ParamType::BOOLEAN:
-                                targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<bool>());
-                                break;
-                            }
-                        }
-                    }
-                }
-                // *** FIX END ***
+        if (start && end && end > start)
+        {
+            char original_char_after_end = *(end + 1);
+            *(end + 1) = '\0';
 
-                Serial.print("OK: Segment ID ");
-                Serial.print(targetSeg->getId());
-                Serial.print(" (");
-                Serial.print(targetSeg->getName());
-                Serial.println(") config applied.");
-            }
-            else
-            {
-                Serial.println("ERR: Failed to find or create segment.");
-            }
+            processSingleSegmentJson(start);
+
+            *(end + 1) = original_char_after_end;
+
+            size_t processed_len = (end - _incomingJsonBuffer) + 1;
+            size_t remaining_len = _jsonBufferIndex - processed_len;
+            memmove(_incomingJsonBuffer, end + 1, remaining_len);
+            _jsonBufferIndex = remaining_len;
+            _incomingJsonBuffer[_jsonBufferIndex] = '\0';
+
             _segmentsReceivedInBatch++;
-            _incomingJsonBuffer.remove(startIndex, endIndex + 1 - startIndex);
+
             uint8_t ack_payload[] = {CMD_ACK};
             BLEManager::getInstance().sendMessage(ack_payload, 1);
             Serial.print("-> Sent ACK for segment ");
             Serial.print(_segmentsReceivedInBatch);
             Serial.println(".");
+
             if (_segmentsReceivedInBatch >= _expectedSegmentsToReceive)
             {
                 Serial.println("OK: All segment configurations received and applied.");
                 _incomingBatchState = IncomingBatchState::IDLE;
-                _incomingJsonBuffer = "";
+                _jsonBufferIndex = 0;
+                memset(_incomingJsonBuffer, 0, sizeof(_incomingJsonBuffer));
                 strip->show();
             }
         }
@@ -601,12 +521,12 @@ void BinaryCommandHandler::handleGetStatus()
             segObj["effect"] = s->activeEffect ? s->activeEffect->getName() : "None";
         }
     }
-    String response;
-    serializeJson(doc, response);
+    char responseBuffer[1024];
+    size_t length = serializeJson(doc, responseBuffer, sizeof(responseBuffer));
     Serial.print("-> Sending Status JSON (");
-    Serial.print(response.length());
+    Serial.print(length);
     Serial.println(" bytes)");
-    BLEManager::getInstance().sendMessage(response);
+    BLEManager::getInstance().sendMessage((const uint8_t *)responseBuffer, length);
 }
 
 void BinaryCommandHandler::handleGetLedCount()
@@ -726,11 +646,10 @@ void BinaryCommandHandler::handleSetEffectParameter(const uint8_t *payload, size
         BLEManager::getInstance().sendMessage("{\"error\":\"Invalid parameter data\"}");
         return;
     }
-    String paramName;
-    for (int i = 0; i < nameLen; ++i)
-    {
-        paramName += (char)payload[3 + i];
-    }
+    char paramName[nameLen + 1];
+    memcpy(paramName, payload + 3, nameLen);
+    paramName[nameLen] = '\0';
+
     PixelStrip::Segment *seg = strip->getSegments()[segId];
     if (!seg->activeEffect)
     {
@@ -752,7 +671,7 @@ void BinaryCommandHandler::handleSetEffectParameter(const uint8_t *payload, size
             return;
         }
         int32_t intValue = (int32_t)valueBytes[0] << 24 | (int32_t)valueBytes[1] << 16 | (int32_t)valueBytes[2] << 8 | (int32_t)valueBytes[3];
-        seg->activeEffect->setParameter(paramName.c_str(), (int)intValue);
+        seg->activeEffect->setParameter(paramName, (int)intValue);
         Serial.print("OK: Set param '");
         Serial.print(paramName);
         Serial.print("' to int ");
@@ -769,7 +688,7 @@ void BinaryCommandHandler::handleSetEffectParameter(const uint8_t *payload, size
         }
         float floatValue;
         memcpy(&floatValue, valueBytes, 4);
-        seg->activeEffect->setParameter(paramName.c_str(), floatValue);
+        seg->activeEffect->setParameter(paramName, floatValue);
         Serial.print("OK: Set param '");
         Serial.print(paramName);
         Serial.print("' to float ");
@@ -785,7 +704,7 @@ void BinaryCommandHandler::handleSetEffectParameter(const uint8_t *payload, size
             return;
         }
         uint32_t colorValue = (uint32_t)valueBytes[1] << 16 | (uint32_t)valueBytes[2] << 8 | (uint32_t)valueBytes[3];
-        seg->activeEffect->setParameter(paramName.c_str(), colorValue);
+        seg->activeEffect->setParameter(paramName, colorValue);
         Serial.print("OK: Set param '");
         Serial.print(paramName);
         Serial.print("' to color 0x");
@@ -801,7 +720,7 @@ void BinaryCommandHandler::handleSetEffectParameter(const uint8_t *payload, size
             return;
         }
         bool boolValue = (valueBytes[0] != 0);
-        seg->activeEffect->setParameter(paramName.c_str(), boolValue);
+        seg->activeEffect->setParameter(paramName, boolValue);
         Serial.print("OK: Set param '");
         Serial.print(paramName);
         Serial.print("' to bool ");
@@ -856,24 +775,27 @@ void BinaryCommandHandler::handleGetAllSegmentConfigs(bool viaSerial)
             }
         }
     }
-    String response;
-    serializeJson(doc, response);
+
+    char responseBuffer[2048];
+    size_t length = serializeJson(doc, responseBuffer, sizeof(responseBuffer));
+
     if (viaSerial)
     {
         Serial.print("-> Sending All Segment Configs JSON via Serial (");
-        Serial.print(response.length());
+        Serial.print(length);
         Serial.println(" bytes)");
-        Serial.println(response);
+        Serial.println(responseBuffer);
     }
     else
     {
         Serial.print("-> Sending All Segment Configs JSON via BLE (");
-        Serial.print(response.length());
+        Serial.print(length);
         Serial.println(" bytes)");
-        BLEManager::getInstance().sendMessage(response);
+        BLEManager::getInstance().sendMessage((const uint8_t *)responseBuffer, length);
     }
 }
-void BinaryCommandHandler::processSingleSegmentJson(const String &jsonString)
+
+void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
 {
     StaticJsonDocument<512> doc;
     DeserializationError error = deserializeJson(doc, jsonString);
@@ -884,22 +806,21 @@ void BinaryCommandHandler::processSingleSegmentJson(const String &jsonString)
         BLEManager::getInstance().sendMessage("{\"error\":\"JSON_PARSE_ERROR_SEGMENT\"}");
         return;
     }
-    String name = doc["name"] | "";
+    const char *name = doc["name"] | "";
     uint16_t start = doc["startLed"] | 0;
     uint16_t end = doc["endLed"] | 0;
     uint8_t brightness = doc["brightness"] | 255;
-    String effectNameStr = doc["effect"] | "SolidColor";
+    const char *effectNameStr = doc["effect"] | "SolidColor";
     uint8_t segmentId = doc["id"] | 0;
     PixelStrip::Segment *targetSeg = nullptr;
 
-    if (name.equalsIgnoreCase("all"))
+    if (strcmp(name, "all") == 0)
     {
         targetSeg = strip->getSegments()[0];
         targetSeg->setRange(start, end);
     }
     else
     {
-        // Find existing segment by ID
         for (auto *s : strip->getSegments())
         {
             if (s->getId() == segmentId)
@@ -908,7 +829,6 @@ void BinaryCommandHandler::processSingleSegmentJson(const String &jsonString)
                 break;
             }
         }
-        // If not found, create a new one
         if (!targetSeg)
         {
             strip->addSection(start, end, name);
@@ -916,7 +836,6 @@ void BinaryCommandHandler::processSingleSegmentJson(const String &jsonString)
         }
         else
         {
-            // if found, update its range
             targetSeg->setRange(start, end);
         }
     }
@@ -926,7 +845,7 @@ void BinaryCommandHandler::processSingleSegmentJson(const String &jsonString)
         targetSeg->setBrightness(brightness);
         if (targetSeg->activeEffect)
         {
-            if (!String(targetSeg->activeEffect->getName()).equalsIgnoreCase(effectNameStr))
+            if (strcmp(targetSeg->activeEffect->getName(), effectNameStr) != 0)
             {
                 delete targetSeg->activeEffect;
                 targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
@@ -937,13 +856,12 @@ void BinaryCommandHandler::processSingleSegmentJson(const String &jsonString)
             targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
         }
 
-        // *** FIX START: Correctly parse the 'parameters' object from a different JSON structure ***
         if (targetSeg->activeEffect && doc.containsKey("parameters"))
         {
-             // This logic handles a {"name":"speed", "value":150} structure
-            JsonArray paramsArray = doc["parameters"].as<JsonArray>();
-            if(!paramsArray.isNull()){
-                for (JsonObject param_data : paramsArray)
+            JsonVariant params = doc["parameters"];
+            if (params.is<JsonArray>())
+            {
+                for (JsonObject param_data : params.as<JsonArray>())
                 {
                     const char *paramName = param_data["name"];
                     if (paramName)
@@ -972,34 +890,34 @@ void BinaryCommandHandler::processSingleSegmentJson(const String &jsonString)
                         }
                     }
                 }
-            } else { 
-                // This logic handles a {"speed":150, "color": 16711680} structure
-                 JsonObject paramsObj = doc["parameters"].as<JsonObject>();
-                 for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i)
+            }
+            else if (params.is<JsonObject>())
+            {
+                JsonObject paramsObj = params.as<JsonObject>();
+                for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i)
+                {
+                    EffectParameter *p = targetSeg->activeEffect->getParameter(i);
+                    if (paramsObj.containsKey(p->name))
                     {
-                        EffectParameter *p = targetSeg->activeEffect->getParameter(i);
-                        if (paramsObj.containsKey(p->name))
+                        switch (p->type)
                         {
-                            switch (p->type)
-                            {
-                            case ParamType::INTEGER:
-                                targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<int>());
-                                break;
-                            case ParamType::FLOAT:
-                                targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<float>());
-                                break;
-                            case ParamType::COLOR:
-                                targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<uint32_t>());
-                                break;
-                            case ParamType::BOOLEAN:
-                                targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<bool>());
-                                break;
-                            }
+                        case ParamType::INTEGER:
+                            targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<int>());
+                            break;
+                        case ParamType::FLOAT:
+                            targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<float>());
+                            break;
+                        case ParamType::COLOR:
+                            targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<uint32_t>());
+                            break;
+                        case ParamType::BOOLEAN:
+                            targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<bool>());
+                            break;
                         }
                     }
+                }
             }
         }
-        // *** FIX END ***
 
         Serial.print("OK: Segment ID ");
         Serial.print(targetSeg->getId());
