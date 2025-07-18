@@ -8,6 +8,7 @@ import random
 
 # --- Serial Communication Helpers ---
 
+
 def send_command(ser, command_str):
     """Sends a command string to the Arduino and prints debug info."""
     print(f"\n[SEND] Command: '{command_str.strip()}'")
@@ -15,6 +16,7 @@ def send_command(ser, command_str):
     print(
         f"[SENT] ASCII: '{command_str.strip()}' | Bytes: {command_str.encode('utf-8').hex()}"
     )
+
 
 def read_line(ser, timeout_s=5):
     """Reads a single line from serial with a timeout."""
@@ -61,6 +63,7 @@ def read_json_response(ser, timeout_s=15):
     print(f"Timeout: No valid JSON received. Buffer: '{json_str_buffer}'")
     return None
 
+
 def wait_for_ack(ser, timeout_s=5):
     """Waits for an ACK or relevant 'OK' message from the Arduino."""
     print("[RECV] Waiting for ACK...")
@@ -79,6 +82,7 @@ def wait_for_ack(ser, timeout_s=5):
     print("[RECV] Timeout: No ACK received.")
     return False
 
+
 # --- Phase 1: Set LED Count ---
 def set_led_count(port, baud, led_count):
     """
@@ -86,28 +90,29 @@ def set_led_count(port, baud, led_count):
     """
     print("\n--- PHASE 1: SETTING LED COUNT ---")
     print(f"Setting LED count to {led_count} and waiting for device to restart.")
-    
+
     ser = None
     try:
         ser = serial.Serial(port, baud, timeout=5)
-        time.sleep(2) # Wait for initial connection
+        time.sleep(2)  # Wait for initial connection
         ser.flushInput()
-        
+
         command = f"setledcount {led_count}\n"
         send_command(ser, command)
-        
+
         print("Command sent. The device will now restart. This script will pause.")
-        
+
     finally:
         if ser and ser.is_open:
             ser.close()
             print("Serial port closed for restart.")
 
-    time.sleep(8) 
+    time.sleep(8)
     print("Device should have restarted. Proceeding to Phase 2.")
 
 
 # --- Phase 2: Configuration Generation and Upload ---
+
 
 def get_available_effects(ser):
     """Fetches the list of available effects from the Arduino."""
@@ -122,53 +127,58 @@ def get_available_effects(ser):
     print("Failed to get effects list.")
     return []
 
-def generate_custom_config(available_effects, num_segments=13, leds_per_segment=45, chosen_effect=None):
+
+def generate_bench_test_config(available_effects, leds_per_segment=45):
     """
-    Generates a list of segment configurations. If a chosen_effect is provided,
-    it's applied to all segments. Otherwise, it cycles through available effects.
+    Generates a simple configuration for a single test segment.
     """
     if not available_effects:
         print("Cannot generate config without a list of effects.")
         return []
 
     segments = []
-    total_leds = num_segments * leds_per_segment
+    total_leds = leds_per_segment
 
-    segments.append({
-        "id": 0, "name": "all", "startLed": 0, "endLed": total_leds - 1,
-        "brightness": 200, "effect": "SolidColor", "color": 0x100030,
-    })
-
-    for i in range(num_segments):
-        start_led = i * leds_per_segment
-        end_led = start_led + leds_per_segment - 1
-        
-        # Use the chosen effect if provided, otherwise cycle through dynamic effects
-        if chosen_effect:
-            effect_name = chosen_effect
-        else:
-            dynamic_effects = [e for e in available_effects if e != "None"]
-            effect_name = dynamic_effects[i % len(dynamic_effects)] if dynamic_effects else "RainbowChase"
-
-        segment = {
-            "id": i + 1, "name": f"cape_seg_{i+1}", "startLed": start_led, "endLed": end_led,
-            "brightness": random.randint(150, 255), "effect": effect_name,
-            "speed": random.randint(20, 100), "color": random.randint(0, 0xFFFFFF),
-            "cooling": random.randint(20, 85), "sparking": random.randint(50, 200)
+    # Segment 0: The 'all' segment, covering the entire strip
+    segments.append(
+        {
+            "id": 0,
+            "name": "all",
+            "startLed": 0,
+            "endLed": total_leds - 1,
+            "brightness": 150,
+            "effect": "SolidColor",
+            "color": 0x000000,  # Off by default
         }
-        segments.append(segment)
+    )
 
-    if chosen_effect:
-        print(f"\nGenerated {len(segments)} total segments for {total_leds} LEDs, all with effect '{chosen_effect}'.")
-    else:
-        print(f"\nGenerated {len(segments)} total segments for {total_leds} LEDs with varied effects.")
-        
+    # Segment 1: The single segment for bench testing
+    dynamic_effects = [e for e in available_effects if e not in ["None", "SolidColor"]]
+    effect_name = random.choice(dynamic_effects) if dynamic_effects else "RainbowChase"
+
+    segments.append(
+        {
+            "id": 1,
+            "name": "bench_test_segment",
+            "startLed": 0,
+            "endLed": total_leds - 1,
+            "brightness": random.randint(150, 255),
+            "effect": effect_name,
+            "speed": 50,
+            "color": random.randint(0, 0xFFFFFF),
+        }
+    )
+
+    print(
+        f"\nGenerated {len(segments)} total segments for a single strip of {total_leds} LEDs."
+    )
     return segments
+
 
 def upload_configuration(ser, segments_to_send):
     """Uploads the full segment configuration to the device."""
     print("\n--- PHASE 2: UPLOADING SEGMENT CONFIGURATION ---")
-    
+
     ser.flushInput()
     send_command(ser, "setallsegmentconfigs\n")
     if not wait_for_ack(ser):
@@ -197,15 +207,16 @@ def upload_configuration(ser, segments_to_send):
     print("\n--- Configuration successfully uploaded! ---")
     return True
 
+
 # --- Phase 3: Verification ---
+
 
 def verify_led_count(ser, expected_count):
     """Connects and sends 'getledcount' to verify the setting."""
     print("\n--- Verifying LED Count ---")
     ser.flushInput()
     send_command(ser, "getledcount\n")
-    
-    # Read response lines until we find the one with the count
+
     while True:
         line = read_line(ser)
         if not line:
@@ -225,35 +236,44 @@ def verify_led_count(ser, expected_count):
                 print(f"Verification FAILED: Could not parse LED count from '{line}'.")
                 return False
 
+
 def verify_configuration(ser, sent_config):
     """Sends 'getallsegmentconfigs' and compares the result."""
     print("\n--- Verifying Segment Configuration ---")
     ser.flushInput()
     send_command(ser, "getallsegmentconfigs\n")
-    
+
     received_config = read_json_response(ser)
     if not received_config or "segments" not in received_config:
         print("Verification FAILED: Did not receive valid segment config JSON.")
         return False
 
     received_segments = received_config["segments"]
-    print(f"Expected {len(sent_config)} segments, Received {len(received_segments)} segments.")
+    print(
+        f"Expected {len(sent_config)} segments, Received {len(received_segments)} segments."
+    )
     if len(sent_config) != len(received_segments):
         print("Verification FAILED: Segment count mismatch.")
         return False
-    
-    # Simple verification: Check if names and ranges match for all segments
-    for i, sent_seg in enumerate(sent_config):
-        # Find the received segment with the same ID
-        received_seg = next((s for s in received_segments if s['id'] == sent_seg['id']), None)
+
+    for sent_seg in sent_config:
+        received_seg = next(
+            (s for s in received_segments if s["id"] == sent_seg["id"]), None
+        )
         if not received_seg:
-            print(f"Verification FAILED: Sent segment ID {sent_seg['id']} not found in received config.")
+            print(
+                f"Verification FAILED: Sent segment ID {sent_seg['id']} not found in received config."
+            )
             return False
 
-        if (sent_seg['name'] != received_seg['name'] or
-            sent_seg['startLed'] != received_seg['startLed'] or
-            sent_seg['endLed'] != received_seg['endLed']):
-            print(f"Verification FAILED: Mismatch found for segment ID {sent_seg['id']}.")
+        if (
+            sent_seg["name"] != received_seg["name"]
+            or sent_seg["startLed"] != received_seg["startLed"]
+            or sent_seg["endLed"] != received_seg["endLed"]
+        ):
+            print(
+                f"Verification FAILED: Mismatch found for segment ID {sent_seg['id']}."
+            )
             print(f"  Sent:     {sent_seg}")
             print(f"  Received: {received_seg}")
             return False
@@ -261,23 +281,35 @@ def verify_configuration(ser, sent_config):
     print("Verification PASSED: Segment names and ranges are correct.")
     return True
 
+
 # --- Main Script Execution ---
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Arduino Segment Configuration Loader")
-    parser.add_argument("--port", type=str, required=True, help="Serial port of the Arduino")
-    parser.add_argument("--baud", type=int, default=115200, help="Baud rate for serial connection")
-    parser.add_argument("--num_segments", type=int, default=13, help="Number of segments to create.")
-    parser.add_argument("--leds_per_segment", type=int, default=45, help="Number of LEDs in each segment.")
+    parser = argparse.ArgumentParser(
+        description="Arduino Bench Test Configuration Loader"
+    )
+    parser.add_argument(
+        "--port", type=str, required=True, help="Serial port of the Arduino"
+    )
+    parser.add_argument(
+        "--baud", type=int, default=115200, help="Baud rate for serial connection"
+    )
+    parser.add_argument(
+        "--leds",
+        type=int,
+        default=45,
+        help="Number of LEDs for the single test segment.",
+    )
     args = parser.parse_args()
 
     ser = None
     all_tests_passed = True
     try:
         # --- PHASE 1 ---
-        total_leds = args.num_segments * args.leds_per_segment
+        total_leds = args.leds
         set_led_count(args.port, args.baud, total_leds)
-        
+
         # --- PHASE 2 ---
         print(f"Re-connecting to {args.port} to upload configuration...")
         ser = serial.Serial(args.port, args.baud, timeout=5)
@@ -290,37 +322,15 @@ def main():
             print("Could not retrieve effects. Aborting.")
             sys.exit(1)
 
-        # --- New User Interaction Block ---
-        print("\nPlease choose an effect to apply to all segments:")
-        # Filter out effects that don't make sense for a full segment display
-        dynamic_effects = [e for e in effects if e not in ["None", "SolidColor", "FlashOnTrigger"]]
-        for i, effect in enumerate(dynamic_effects):
-            print(f"  {i+1}: {effect}")
-
-        chosen_effect = None
-        while True:
-            try:
-                choice = input(f"Enter a number (1-{len(dynamic_effects)}): ")
-                choice_index = int(choice) - 1
-                if 0 <= choice_index < len(dynamic_effects):
-                    chosen_effect = dynamic_effects[choice_index]
-                    print(f"You chose: {chosen_effect}")
-                    break
-                else:
-                    print("Invalid number. Please try again.")
-            except ValueError:
-                print("Invalid input. Please enter a number.")
-        # --- End of New Block ---
-
-        custom_config = generate_custom_config(effects, args.num_segments, args.leds_per_segment, chosen_effect)
-        if not upload_configuration(ser, custom_config):
+        bench_config = generate_bench_test_config(effects, args.leds)
+        if not upload_configuration(ser, bench_config):
             print("Upload failed. Aborting verification.")
             sys.exit(1)
-        
+
         # --- PHASE 3 ---
         if not verify_led_count(ser, total_leds):
             all_tests_passed = False
-        if not verify_configuration(ser, custom_config):
+        if not verify_configuration(ser, bench_config):
             all_tests_passed = False
 
     except serial.SerialException as e:
@@ -336,13 +346,13 @@ def main():
         if ser and ser.is_open:
             ser.close()
             print("\nSerial port closed.")
-        
-        print("\n" + "="*30)
+
+        print("\n" + "=" * 30)
         if all_tests_passed:
-            print("✅ CONFIGURATION AND VERIFICATION COMPLETE ✅")
+            print("✅ BENCH TEST CONFIGURATION COMPLETE ✅")
         else:
             print("❌ CONFIGURATION FAILED OR VERIFICATION MISMATCH ❌")
-        print("="*30)
+        print("=" * 30)
 
 
 if __name__ == "__main__":

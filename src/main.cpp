@@ -24,7 +24,7 @@ SerialCommandHandler serialCommandHandler;
 // --- Global Variable Definitions ---
 PixelStrip *strip = nullptr;
 PixelStrip::Segment *seg = nullptr;
-uint16_t LED_COUNT = 150; // Default value
+uint16_t LED_COUNT = 585; // Default value
 const char *STATE_FILE = "/littlefs/state.json";
 LittleFS_MBED myFS;
 
@@ -64,7 +64,7 @@ void setup()
         if (error == DeserializationError::Ok)
         {
             // 2. Extract LED_COUNT from the parsed document.
-            LED_COUNT = doc["led_count"] | 150;
+            LED_COUNT = doc["led_count"] | 585;
             
             // 3. Initialize hardware that depends on config values.
             initIMU();
