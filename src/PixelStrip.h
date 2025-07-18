@@ -46,7 +46,7 @@ public:
         // --- Getters & Setters ---
         uint16_t startIndex() const;
         uint16_t endIndex() const;
-        String getName() const;
+        const char* getName() const; // MODIFIED: Return type is now const char*
         uint8_t getId() const;
         PixelStrip &getParent();
         void setBrightness(uint8_t b);
@@ -64,7 +64,7 @@ public:
     private:
         PixelStrip &parent;
         uint16_t startIdx, endIdx;
-        String name;
+        char name[32]; // MODIFIED: Changed from String to fixed-size char array
         uint8_t id;
         uint8_t brightness = 255;
     };

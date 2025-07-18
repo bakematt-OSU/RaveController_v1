@@ -63,7 +63,6 @@ uint32_t PixelStrip::ColorHSV(uint16_t hue, uint8_t sat, uint8_t val)
     return Color(rgb.R, rgb.G, rgb.B);
 }
 
-// **FIXED**: Added the missing definition for the static scaleColor function
 uint32_t PixelStrip::scaleColor(uint32_t color, uint8_t brightness)
 {
     uint8_t r = (color >> 16) & 0xFF;
@@ -109,8 +108,15 @@ void PixelStrip::propagateTriggerState(bool isActive, uint8_t brightness)
 // PixelStrip::Segment Class Methods
 //================================================================================
 
+// MODIFIED: Constructor now uses strncpy for safe copying and no longer initializes `name` in the member initializer list.
 PixelStrip::Segment::Segment(PixelStrip &p, uint16_t s, uint16_t e, const String &n, uint8_t i)
-    : parent(p), startIdx(s), endIdx(e), name(n), id(i) {}
+    : parent(p), startIdx(s), endIdx(e), id(i)
+{
+    // Safely copy the incoming name into the fixed-size char array
+    strncpy(name, n.c_str(), sizeof(name) - 1);
+    // Ensure the array is always null-terminated, even if the source string was too long
+    name[sizeof(name) - 1] = '\0';
+}
 
 PixelStrip::Segment::~Segment()
 {
@@ -156,7 +162,10 @@ void PixelStrip::Segment::setColor(uint8_t r, uint8_t g, uint8_t b)
 
 uint16_t PixelStrip::Segment::startIndex() const { return startIdx; }
 uint16_t PixelStrip::Segment::endIndex() const { return endIdx; }
-String PixelStrip::Segment::getName() const { return name; }
+
+// MODIFIED: This function now returns a const char* to match the change in the header file.
+const char* PixelStrip::Segment::getName() const { return name; }
+
 uint8_t PixelStrip::Segment::getId() const { return id; }
 PixelStrip &PixelStrip::Segment::getParent() { return parent; }
 void PixelStrip::Segment::setBrightness(uint8_t b) { brightness = b; }
