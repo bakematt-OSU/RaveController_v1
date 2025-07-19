@@ -75,8 +75,9 @@ public:
         }
         for (int i = 0; i < heatSize; ++i) {
             RgbColor col = FlareHeatColor(heat[i]);
-            col.Dim(segment->getBrightness());
-            segment->getParent().getStrip().SetPixelColor(startPix + i, col);
+            uint32_t rawColor = segment->getParent().Color(col.R, col.G, col.B);
+            uint32_t scaledColor = PixelStrip::scaleColor(rawColor, segment->getBrightness());
+            segment->getParent().setPixel(startPix + i, scaledColor);
         }
     }
 

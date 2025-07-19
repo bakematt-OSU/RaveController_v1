@@ -397,10 +397,17 @@ void BinaryCommandHandler::handleSetBrightness(const uint8_t *payload, size_t le
         Serial.println("ERR: Strip not initialized!");
         return;
     }
-    strip->getSegments()[0]->setBrightness(payload[0]);
-    Serial.print("OK: Global Brightness set to ");
-    Serial.println(payload[0]);
+    
+    // Iterate through all segments and set their brightness.
+    uint8_t newBrightness = payload[0];
+    for (auto* s : strip->getSegments()) {
+        s->setBrightness(newBrightness);
+    }
+
+    Serial.print("OK: Global Brightness set for all segments to ");
+    Serial.println(newBrightness);
 }
+
 
 void BinaryCommandHandler::handleSetSegmentBrightness(const uint8_t *payload, size_t len)
 {
@@ -856,68 +863,36 @@ void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
             targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
         }
 
-        if (targetSeg->activeEffect && doc.containsKey("parameters"))
+        // *** START FIX ***
+        // This block now correctly parses parameters from the top level of the JSON object.
+        if (targetSeg->activeEffect)
         {
-            JsonVariant params = doc["parameters"];
-            if (params.is<JsonArray>())
+            JsonObject docObj = doc.as<JsonObject>();
+            for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i)
             {
-                for (JsonObject param_data : params.as<JsonArray>())
+                EffectParameter *p = targetSeg->activeEffect->getParameter(i);
+                if (docObj.containsKey(p->name))
                 {
-                    const char *paramName = param_data["name"];
-                    if (paramName)
+                    switch (p->type)
                     {
-                        for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); i++)
-                        {
-                            EffectParameter *p = targetSeg->activeEffect->getParameter(i);
-                            if (strcmp(p->name, paramName) == 0)
-                            {
-                                switch (p->type)
-                                {
-                                case ParamType::INTEGER:
-                                    targetSeg->activeEffect->setParameter(p->name, param_data["value"].as<int>());
-                                    break;
-                                case ParamType::FLOAT:
-                                    targetSeg->activeEffect->setParameter(p->name, param_data["value"].as<float>());
-                                    break;
-                                case ParamType::COLOR:
-                                    targetSeg->activeEffect->setParameter(p->name, param_data["value"].as<uint32_t>());
-                                    break;
-                                case ParamType::BOOLEAN:
-                                    targetSeg->activeEffect->setParameter(p->name, param_data["value"].as<bool>());
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            else if (params.is<JsonObject>())
-            {
-                JsonObject paramsObj = params.as<JsonObject>();
-                for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i)
-                {
-                    EffectParameter *p = targetSeg->activeEffect->getParameter(i);
-                    if (paramsObj.containsKey(p->name))
-                    {
-                        switch (p->type)
-                        {
-                        case ParamType::INTEGER:
-                            targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<int>());
-                            break;
-                        case ParamType::FLOAT:
-                            targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<float>());
-                            break;
-                        case ParamType::COLOR:
-                            targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<uint32_t>());
-                            break;
-                        case ParamType::BOOLEAN:
-                            targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<bool>());
-                            break;
-                        }
+                    case ParamType::INTEGER:
+                        targetSeg->activeEffect->setParameter(p->name, docObj[p->name].as<int>());
+                        break;
+                    case ParamType::FLOAT:
+                        targetSeg->activeEffect->setParameter(p->name, docObj[p->name].as<float>());
+                        break;
+                    case ParamType::COLOR:
+                        targetSeg->activeEffect->setParameter(p->name, docObj[p->name].as<uint32_t>());
+                        break;
+                    case ParamType::BOOLEAN:
+                        targetSeg->activeEffect->setParameter(p->name, docObj[p->name].as<bool>());
+                        break;
                     }
                 }
             }
         }
+        // *** END FIX ***
+
 
         Serial.print("OK: Segment ID ");
         Serial.print(targetSeg->getId());
