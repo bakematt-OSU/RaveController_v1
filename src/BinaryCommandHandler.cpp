@@ -65,6 +65,8 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
                     Serial.print("Now waiting for ACK to send effect ");
                     Serial.print(_effectsSentInBatch);
                     Serial.println("...");
+                    _ackReceived = false; // Reset ACK for the next expected ACK
+                    _ackTimeoutStart = millis(); // Restart timeout for the next ACK
                 }
             }
         }
@@ -252,6 +254,8 @@ void BinaryCommandHandler::handleGetAllEffectsCommand(bool viaSerial)
     Serial.println(_expectedEffectsToSend);
     Serial.println("Now waiting for ACK to send first effect...");
     _incomingBatchState = IncomingBatchState::EXPECTING_EFFECT_ACK;
+    _ackReceived = false; // Set to false to wait for the first ACK
+    _ackTimeoutStart = millis(); // Start timeout for the first ACK
 }
 
 void BinaryCommandHandler::processIncomingAllSegmentsData(const uint8_t *data, size_t len)
@@ -419,6 +423,20 @@ IncomingBatchState BinaryCommandHandler::getIncomingBatchState() const {
 
 bool BinaryCommandHandler::isSerialBatchActive() const {
     return _isSerialBatch;
+}
+
+// Implementation of the update method to handle timeouts for ACKs
+void BinaryCommandHandler::update() {
+    if (_incomingBatchState == IncomingBatchState::EXPECTING_EFFECT_ACK) {
+        if (!_ackReceived && (millis() - _ackTimeoutStart > ACK_WAIT_TIMEOUT_MS)) {
+            Serial.println("WARN: ACK timeout reached while expecting effect ACK. Resetting batch state.");
+            // Reset state after timeout
+            _incomingBatchState = IncomingBatchState::IDLE;
+            _effectsSentInBatch = 0;
+            _expectedEffectsToSend = 0;
+            _isSerialEffectsTest = false;
+        }
+    }
 }
 
 // *** END: Added / Corrected Member Function Definitions ***
@@ -869,9 +887,8 @@ void BinaryCommandHandler::handleGetAllSegmentConfigs(bool viaSerial)
             segObj["startLed"] = s->startIndex();
             segObj["endLed"] = s->endIndex();
             segObj["brightness"] = s->getBrightness();
-            segObj["effect"] = s->activeEffect ? s->activeEffect->getName() : "None";
-            if (s->activeEffect)
-            {
+            if (s->activeEffect) {
+                segObj["effect"] = s->activeEffect->getName();
                 for (int i = 0; i < s->activeEffect->getParameterCount(); ++i)
                 {
                     EffectParameter *p = s->activeEffect->getParameter(i);

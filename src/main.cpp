@@ -1,9 +1,10 @@
+// src/main.cpp
 /**
  * @file main.cpp
  * @brief Main application logic for the Rave Controller.
  *
- * @version 2.6 (Robust Startup Parsing)
- * @date 2025-07-17
+ * @version 2.7 (Timeout Integration)
+ * @date 2025-07-18
  */
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -164,6 +165,7 @@ void loop()
     unsigned long currentMillis = millis();
 
     bleManager.update();
+    binaryCommandHandler.update(); // Added: Call the update method for timeout checks
 
     if (currentMillis - lastBleCheck > 500)
     {
