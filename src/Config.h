@@ -15,6 +15,7 @@ constexpr uint8_t LED_PIN  = 4;
 extern uint16_t LED_COUNT;
 constexpr uint8_t  BRIGHTNESS    = 10;
 constexpr uint8_t  SEGMENT_COUNT = 0;
+constexpr uint16_t EFFECT_SCRATCHPAD_SIZE = 600;
 
 // —— Accelerometer & Step Detection ——
 constexpr float        STEP_THRESHOLD      = 2.5f;

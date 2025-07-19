@@ -10,85 +10,71 @@ class Fire : public BaseEffect {
 private:
     PixelStrip::Segment* segment;
     EffectParameter params[2];
-    byte* heat       = nullptr;  // heat buffer for this segment only
-    int   heatSize   = 0;        // number of pixels in this segment
+    byte* heat       = nullptr;
+    int   heatSize   = 0;
 
-    // Fast add/sub helpers
-    byte qadd8(byte a, byte b) {
-        unsigned int s = a + b;
-        return s > 255 ? 255 : byte(s);
-    }
-    byte qsub8(byte a, byte b) {
-        return b > a ? 0 : a - b;
-    }
+    byte qadd8(byte a, byte b) { unsigned int s = a + b; return s > 255 ? 255 : byte(s); }
+    byte qsub8(byte a, byte b) { return b > a ? 0 : a - b; }
 
-    // Map heat to color
     RgbColor HeatColor(byte temperature) {
         byte t192 = round((temperature / 255.0) * 191);
-        byte heatramp = t192 & 0x3F;           // 0..63
-        heatramp <<= 2;                        // scale up to 0..252
-        if (t192 > 0x80) {
-            return RgbColor(255, 255, heatramp);            // white → yellow
-        } else if (t192 > 0x40) {
-            return RgbColor(255, heatramp, 0);              // yellow → red
-        } else {
-            return RgbColor(heatramp, 0, 0);                // red → black
-        }
+        byte heatramp = t192 & 0x3F;
+        heatramp <<= 2;
+        if (t192 > 0x80) return RgbColor(255, 255, heatramp);
+        else if (t192 > 0x40) return RgbColor(255, heatramp, 0);
+        else return RgbColor(heatramp, 0, 0);
     }
 
 public:
-    Fire(PixelStrip::Segment* seg)
+    // MODIFIED CONSTRUCTOR: Accepts an external buffer
+    Fire(PixelStrip::Segment* seg, uint8_t* externalBuffer, int bufferSize)
       : segment(seg)
     {
-        // parameter setup
-        params[0].name        = "sparking";
-        params[0].type        = ParamType::INTEGER;
+        params[0].name = "sparking";
+        params[0].type = ParamType::INTEGER;
         params[0].value.intValue = 120;
-        params[0].min_val     = 20;
-        params[0].max_val     = 200;
+        params[0].min_val = 20;
+        params[0].max_val = 200;
 
-        params[1].name        = "cooling";
-        params[1].type        = ParamType::INTEGER;
+        params[1].name = "cooling";
+        params[1].type = ParamType::INTEGER;
         params[1].value.intValue = 55;
-        params[1].min_val     = 20;
-        params[1].max_val     = 85;
-        // No COLOR or BOOLEAN params, so no min_val/max_val initialization needed here.
+        params[1].min_val = 20;
+        params[1].max_val = 85;
 
-        // allocate heat[] just for this segment
         if (segment) {
-            int start = segment->startIndex();
-            int end   = segment->endIndex();
-            heatSize  = end - start + 1;
-            heat      = new byte[heatSize];
-            memset(heat, 0, heatSize);
+            heatSize = segment->endIndex() - segment->startIndex() + 1;
+            // Use the provided buffer if it's large enough
+            if (heatSize <= bufferSize) {
+                heat = externalBuffer; // Point to the global buffer
+                memset(heat, 0, heatSize);
+            }
+            // NO 'new byte[]' HERE
         }
     }
 
+    // MODIFIED DESTRUCTOR: No longer deletes the buffer
     ~Fire() override {
-        delete[] heat;
+        // NO 'delete[] heat' HERE
     }
 
     void update() override {
-        if (!heat) return;
+        if (!heat) return; // Important safety check
 
         int sparking = params[0].value.intValue;
         int cooling  = params[1].value.intValue;
         int startPix = segment->startIndex();
 
-        // Step 1: cool down every cell
         for (int i = 0; i < heatSize; ++i) {
             heat[i] = qsub8(heat[i], random(0, ((cooling * 10) / heatSize) + 2));
         }
-        // Step 2: heat drifts up
         for (int k = heatSize - 1; k >= 2; --k) {
             heat[k] = (heat[k - 1] + heat[k - 2] + heat[k - 2]) / 3;
         }
-        // Step 3: ignite new sparks
         if (random(255) < sparking) {
             int idx = random(min(7, heatSize));
             heat[idx] = qadd8(heat[idx], random(160, 255));
         }
-        // Step 4: map heat to LED colors
         for (int i = 0; i < heatSize; ++i) {
             RgbColor c = HeatColor(heat[i]);
             c.Dim(segment->getBrightness());

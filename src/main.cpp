@@ -28,13 +28,16 @@ uint16_t LED_COUNT = 585; // Default value
 const char *STATE_FILE = "/littlefs/state.json";
 LittleFS_MBED myFS;
 
+// MODIFIED: Use the new constant from Config.h to define the array
+uint8_t effectScratchpad[EFFECT_SCRATCHPAD_SIZE];
+
 AudioTrigger<SAMPLES> audioTrigger;
 volatile int16_t sampleBuffer[SAMPLES];
 volatile int samplesRead = 0;
 float accelX, accelY, accelZ;
 volatile bool triggerRipple = false;
 
-bool reAdvertisingMessagePrinted = false; 
+bool reAdvertisingMessagePrinted = false;
 
 // --- Forward declarations ---
 void processAudio();
@@ -65,7 +68,7 @@ void setup()
         {
             // 2. Extract LED_COUNT from the parsed document.
             LED_COUNT = doc["led_count"] | 585;
-            
+
             // 3. Initialize hardware that depends on config values.
             initIMU();
             initAudio();
@@ -169,7 +172,7 @@ void loop()
         {
             BLE.stopAdvertise();
             BLE.advertise();
-            
+
             if (!reAdvertisingMessagePrinted)
             {
                 Serial.println("BLE Polling: Not connected. Attempting to re-advertise.");
@@ -219,10 +222,10 @@ void processSerial()
         {
             static char command_buffer[256];
             int bytes_read = Serial.readBytesUntil('\n', command_buffer, sizeof(command_buffer) - 1);
-            
+
             if (bytes_read > 0) {
                 command_buffer[bytes_read] = '\0';
-                
+
                 char* command = command_buffer;
                 while (isspace(*command)) {
                     command++;
@@ -235,7 +238,7 @@ void processSerial()
                         break;
                     }
                 }
-                
+
                 if (strlen(command) > 0) {
                     serialCommandHandler.handleCommand(command);
                 }
