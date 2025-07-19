@@ -6,16 +6,29 @@ import argparse
 import struct  # For converting integer to bytes
 import random  # For generating random-ish values for test data
 
+# --- Constants for binary commands (from BinaryCommandHandler.h) ---
+CMD_GET_ALL_EFFECTS = 0x10
+CMD_ACK_GENERIC = 0xA0  # This corresponds to CMD_ACK_GENERIC in the firmware
+
 # --- Helper Functions for Serial Communication ---
 
 
 def send_command(ser, command_str):
-    """Sends a command string to Arduino and prints debug info."""
+    """Sends a text command string to Arduino and prints debug info."""
     print(f"\n[SEND] Command: '{command_str.strip()}'")
     ser.write(command_str.encode("utf-8"))
     print(
         f"[SENT] ASCII: '{command_str.strip()}' | Bytes: {command_str.encode('utf-8').hex()}"
     )
+
+
+def send_binary_command(ser, command_byte, payload=b""):
+    """Sends a binary command byte followed by an optional payload."""
+    full_command = bytes([command_byte]) + payload
+    print(
+        f"\n[SEND BINARY] Command: 0x{command_byte:02X} | Payload: {payload.hex()} | Full Bytes: {full_command.hex()}"
+    )
+    ser.write(full_command)
 
 
 def read_line_with_timeout(ser, timeout_s=5, expected_prefix=None):
@@ -47,6 +60,25 @@ def read_line_with_timeout(ser, timeout_s=5, expected_prefix=None):
     return None
 
 
+def read_exact_bytes(ser, num_bytes, timeout_s=5):
+    """Reads exactly num_bytes from serial with a timeout."""
+    start_time = time.time()
+    buffer = b""
+    while time.time() - start_time < timeout_s and len(buffer) < num_bytes:
+        if ser.in_waiting > 0:
+            bytes_to_read = min(ser.in_waiting, num_bytes - len(buffer))
+            buffer += ser.read(bytes_to_read)
+        time.sleep(0.001)
+    if len(buffer) == num_bytes:
+        print(f"[RECV BINARY] Received {num_bytes} bytes: {buffer.hex()}")
+        return buffer
+    else:
+        print(
+            f"[RECV BINARY] Timeout or insufficient bytes received. Expected {num_bytes}, Got {len(buffer)}: {buffer.hex()}"
+        )
+        return None
+
+
 def wait_for_ack(ser, timeout_s=5):
     """Waits for an ACK message from the Arduino."""
     print("[RECV] Waiting for ACK...")
@@ -61,6 +93,8 @@ def wait_for_ack(ser, timeout_s=5):
                 "-> Sent ACK" in line
                 or "OK: Segment" in line
                 or "OK: All segment configurations received" in line
+                or "OK: All effects sent."
+                in line  # Added for the getalleffects final ACK
             ):
                 print("[RECV] ACK received.")
                 return True
@@ -78,56 +112,38 @@ def wait_for_ack(ser, timeout_s=5):
 def read_json_response(ser, timeout_s=15):
     """
     Reads lines from serial until a complete, valid JSON object is received or timeout.
-    Intelligently attempts to parse the buffer as JSON and discards non-JSON debug lines.
+    This version is more robust by strictly filtering for JSON start characters.
     """
     json_str_buffer = ""
     start_time = time.time()
-
-    # List of common Arduino debug prefixes to ignore when building JSON buffer
-    debug_prefixes = [
-        "Serial RX (Raw):",
-        "Serial Command Received:",
-        "Serial Command:",
-        "CMD:",
-        "-> Sending",
-        "OK:",
-        "ERR:",
-        "BLE TX Failed:",
-        "Expected segments to receive:",
-        "Received segment JSON:",
-    ]
 
     while time.time() - start_time < timeout_s:
         if ser.in_waiting > 0:
             line = ser.readline().decode("utf-8", errors="ignore").strip()
             print(f"[RECV] Line: '{line}'")  # Always print the raw line for debugging
 
-            # Check if the line is a debug message
-            is_debug_line = False
-            for prefix in debug_prefixes:
-                if line.startswith(prefix):
-                    is_debug_line = True
-                    break
+            # Reset timeout if any data is coming in
+            start_time = time.time()
 
-            if is_debug_line:
-                # If it's a debug line, reset the timeout and continue to next line
-                start_time = time.time()
-                continue
-
-            # If it's not a debug line, assume it's part of the JSON response
-            json_str_buffer += line
-
-            # Try to parse the current buffer as JSON
-            if json_str_buffer:  # Only try if there's something in the buffer
+            # Only consider lines that start with '{' or '[' as potential JSON.
+            if line.startswith("{") or line.startswith("["):
+                json_str_buffer += line
                 try:
                     parsed_json = json.loads(json_str_buffer)
                     return parsed_json  # Successfully parsed, return it!
                 except json.JSONDecodeError:
                     # Not a complete or valid JSON yet, keep buffering
                     pass
+            else:
+                # If it's not a JSON start, discard this line.
+                # If we had partial JSON, and this is NOT JSON, it implies corruption.
+                if json_str_buffer:
+                    print(
+                        f"[RECV] Discarding non-JSON line after partial JSON. Buffer reset."
+                    )
+                    json_str_buffer = ""  # Discard corrupted buffer.
+                # Otherwise, it's just a debug line before any JSON started, so simply discard.
 
-            # Reset timeout if any data is coming in (even if it's not yet a full JSON)
-            start_time = time.time()
         time.sleep(0.001)  # Small delay
 
     print(
@@ -137,20 +153,77 @@ def read_json_response(ser, timeout_s=15):
 
 
 def get_available_effects(ser):
-    """Fetches the list of available effects from the Arduino."""
+    """
+    Fetches the list of available effects from the Arduino using the new binary protocol.
+
+    """
+    available_effects = []
+
+    print("\n--- Fetching All Effects (Binary Protocol) ---")
     ser.flushInput()  # Clear buffer before sending command
-    send_command(ser, "listeffects\n")
-    print("Waiting for available effects list from Arduino...")
 
-    response_json = read_json_response(ser)
+    # 1. Send the text command to SerialCommandHandler to initiate the binary transfer
+    send_command(ser, "getalleffects\n")
 
-    if response_json:
-        effects = response_json.get("effects", [])
-        print(f"Available effects fetched: {effects}")
-        return effects
-    else:
-        print("Failed to receive valid effects list JSON.")
+    # 2. Read the 3-byte binary effect count (CMD_GET_ALL_EFFECTS + 2 bytes for count)
+    # The Arduino sends this immediately after processing the text command.
+    print("[RECV] Waiting for binary effect count header...")
+    response_bytes = read_exact_bytes(ser, 3)
+    if (
+        not response_bytes or response_bytes[0] != CMD_GET_ALL_EFFECTS
+    ):  # Check command byte
+        print(
+            f"Failed to receive valid binary effect count header. Expected command {CMD_GET_ALL_EFFECTS:02X}, got {response_bytes[0]:02X if response_bytes else 'None'}"
+        )
         return []
+
+    effect_count = struct.unpack(">H", response_bytes[1:])[
+        0
+    ]  # Unpack big-endian unsigned short
+    print(f"Expected {effect_count} effects to receive.")
+
+    # 3. Send ACK_GENERIC after receiving the count header. The Arduino expects this ACK
+    # before sending the *first* effect's JSON.
+    send_binary_command(ser, CMD_ACK_GENERIC)
+    time.sleep(
+        0.05
+    )  # Small delay to ensure Arduino processes ACK before sending next data
+
+    # 4. Loop to receive each effect's JSON and send an ACK
+    print("\n[RECV] Waiting for individual effect JSONs...")
+    for i in range(effect_count):
+        # We expect a JSON string, which is text, so use read_json_response
+        effect_json_response = read_json_response(ser)
+        if effect_json_response:
+            effect_name = effect_json_response.get("effect")
+            if effect_name:
+                available_effects.append(effect_name)
+                print(f"Received effect {i+1}: '{effect_name}'")
+
+                # Send ACK_GENERIC for each received effect JSON.
+                # The Arduino waits for this ACK before sending the *next* effect.
+                send_binary_command(ser, CMD_ACK_GENERIC)
+                time.sleep(0.05)  # Small delay to ensure ACK is processed by Arduino
+            else:
+                print(
+                    f"Warning: Received effect JSON without 'effect' key for item {i+1}. JSON: {effect_json_response}"
+                )
+                send_binary_command(
+                    ser, CMD_ACK_GENERIC
+                )  # Still send ACK to not block the Arduino
+        else:
+            print(f"Failed to receive JSON for effect {i+1}. Aborting effect fetching.")
+            # Even if we fail to read, try to send an ACK to avoid blocking the Arduino indefinitely
+            send_binary_command(ser, CMD_ACK_GENERIC)
+            return available_effects  # Return what we have so far
+
+    # After all effects are sent and ACKed, the Arduino sends a final "OK: All effects sent." message.
+    # We wait for this to confirm the sequence is complete.
+    if not wait_for_ack(ser):
+        print("Failed to receive final 'All effects sent' ACK.")
+
+    print(f"\nSuccessfully fetched {len(available_effects)} effects.")
+    return available_effects
 
 
 def get_effect_info(ser, effect_name):
@@ -180,7 +253,9 @@ def get_effect_info(ser, effect_name):
 # --- Test Functions ---
 def set_single_segment_config(ser, segment_data):
     """Sends 'setsegmentjson' with the given segment data."""
-    print(f"\n--- Sending Single Segment Configuration for ID: {segment_data['id']} ---")
+    print(
+        f"\n--- Sending Single Segment Configuration for ID: {segment_data['id']} ---"
+    )
     json_payload = json.dumps(segment_data)
     command = f"setsegmentjson {json_payload}\n"
     send_command(ser, command)
@@ -279,7 +354,7 @@ def generate_test_segments(ser, led_count=45):
         print("Error: No dynamic effects available to assign to segments.")
         return []
 
-    # *** INTEGRATED CHANGE: Shuffle the list to randomize the order of effects ***
+    # Shuffle the list to randomize the order of effects
     random.shuffle(dynamic_effects)
 
     # Segment 0: The "all" segment (always present)
@@ -300,7 +375,7 @@ def generate_test_segments(ser, led_count=45):
     segment_length = max(1, led_count // num_effects_to_test)
     current_led_start = 0
 
-    # *** INTEGRATED CHANGE: Loop through the shuffled list of effects ***
+    # Loop through the shuffled list of effects
     for i, effect_name in enumerate(dynamic_effects):
         start_led = current_led_start
         end_led = min(start_led + segment_length - 1, led_count - 1)
@@ -318,7 +393,7 @@ def generate_test_segments(ser, led_count=45):
             "startLed": start_led,
             "endLed": end_led,
             "brightness": random.randint(100, 255),
-            "effect": effect_name, # Assign the effect from the shuffled list
+            "effect": effect_name,  # Assign the effect from the shuffled list
         }
 
         # Add random parameters for the assigned effect
@@ -339,7 +414,8 @@ def generate_test_segments(ser, led_count=45):
                         random.uniform(
                             min_val if min_val is not None else 0.0,
                             max_val if max_val is not None else 1.0,
-                        ), 2
+                        ),
+                        2,
                     )
                 elif param_type == "color":
                     segment[param_name] = random.randint(0, 0xFFFFFF)
@@ -349,7 +425,9 @@ def generate_test_segments(ser, led_count=45):
         segments.append(segment)
         current_led_start = end_led + 1
 
-    print(f"\nGenerated {len(segments)} segments to test all {num_effects_to_test} dynamic effects.")
+    print(
+        f"\nGenerated {len(segments)} segments to test all {num_effects_to_test} dynamic effects."
+    )
     return segments
 
 
@@ -427,7 +505,9 @@ def main():
                         get_test_status = "PASSED"
                     else:
                         get_test_status = "FAILED"
-                        get_test_reason = "Timeout or JSON parsing error during retrieval."
+                        get_test_reason = (
+                            "Timeout or JSON parsing error during retrieval."
+                        )
                 except Exception as e:
                     get_test_status = "FAILED"
                     get_test_reason = f"Exception during GET test: {e}"
@@ -462,9 +542,11 @@ def main():
                         for segment in test_segments:
                             if not set_single_segment_config(ser, segment):
                                 all_sent_ok = False
-                                set_single_test_reason = f"Failed on segment ID {segment['id']}"
+                                set_single_test_reason = (
+                                    f"Failed on segment ID {segment['id']}"
+                                )
                                 break
-                            time.sleep(1) # Longer pause to visually see each effect
+                            time.sleep(1)  # Longer pause to visually see each effect
                         if all_sent_ok:
                             set_single_test_status = "PASSED"
                         else:
@@ -484,7 +566,9 @@ def main():
                 verify_segments = get_all_segment_configs(ser)
                 if verify_segments is None:
                     verify_test_status = "FAILED"
-                    verify_test_reason = "Could not retrieve segments after setting them."
+                    verify_test_reason = (
+                        "Could not retrieve segments after setting them."
+                    )
                 else:
                     verify_test_status = "PASSED"
                     verify_test_reason = "Segments retrieved successfully."
@@ -503,7 +587,7 @@ def main():
 
         # --- Final Summary ---
         print("\n" + "=" * 30)
-        print("      TEST SUMMARY      ")
+        print("       TEST SUMMARY       ")
         print("=" * 30)
         if get_test_status != "NOT RUN":
             print(f"GET Test Status: {get_test_status}")

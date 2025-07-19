@@ -37,7 +37,8 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
     // Handle ACK for the get all effects command
     if (_incomingBatchState == IncomingBatchState::EXPECTING_EFFECT_ACK)
     {
-        bool isAck = (data[0] == CMD_ACK) || (len >= 3 && data[0] == 'a' && data[1] == 'c' && data[2] == 'k');
+        // Use CMD_ACK_GENERIC
+        bool isAck = (data[0] == (uint8_t)CMD_ACK_GENERIC) || (len >= 3 && data[0] == 'a' && data[1] == 'c' && data[2] == 'k');
         if (isAck)
         {
             handleAck();
@@ -87,27 +88,28 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
 
     switch (cmd)
     {
-    case CMD_SET_COLOR:
-        handleSetColor(payload, payloadLen);
-        break;
-    case CMD_SET_EFFECT:
-        handleSetEffect(payload, payloadLen);
-        break;
-    case CMD_SET_BRIGHTNESS:
-        handleSetBrightness(payload, payloadLen);
-        break;
-    case CMD_SET_SEG_BRIGHT:
-        handleSetSegmentBrightness(payload, payloadLen);
-        break;
+    // OBSOLETE COMMANDS REMOVED FROM SWITCH:
+    // case CMD_SET_COLOR:
+    //     handleSetColor(payload, payloadLen);
+    //     break;
+    // case CMD_SET_EFFECT:
+    //     handleSetEffect(payload, payloadLen);
+    //     break;
+    // case CMD_SET_BRIGHTNESS:
+    //     handleSetBrightness(payload, payloadLen);
+    //     break;
+    // case CMD_SET_SEG_BRIGHT:
+    //     handleSetSegmentBrightness(payload, payloadLen);
+    //     break;
     case CMD_SELECT_SEGMENT:
         handleSelectSegment(payload, payloadLen);
         break;
     case CMD_CLEAR_SEGMENTS:
         handleClearSegments();
         break;
-    case CMD_SET_SEG_RANGE:
-        handleSetSegmentRange(payload, payloadLen);
-        break;
+    // case CMD_SET_SEG_RANGE:
+    //     handleSetSegmentRange(payload, payloadLen);
+    //     break;
     case CMD_SET_LED_COUNT:
         handleSetLedCount(payload, payloadLen);
         break;
@@ -118,10 +120,10 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
         handleSaveConfig();
         sendGenericAck = false;
         break;
-    case CMD_GET_STATUS:
-        handleGetStatus();
-        sendGenericAck = false;
-        break;
+    // case CMD_GET_STATUS: // Now handled by higher-level commands or serial
+    //     handleGetStatus();
+    //     sendGenericAck = false;
+    //     break;
     case CMD_GET_LED_COUNT:
         handleGetLedCount();
         sendGenericAck = false;
@@ -151,13 +153,18 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
         break;
     case CMD_SET_SINGLE_SEGMENT_JSON:
     {
-        char jsonPayload[payloadLen + 1];
-        memcpy(jsonPayload, payload, payloadLen);
-        jsonPayload[payloadLen] = '\0';
-        processSingleSegmentJson(jsonPayload);
+        // Use the member buffer for single segment JSON to avoid VLA
+        if (payloadLen >= sizeof(_incomingJsonBuffer)) {
+            Serial.println("ERR: Single segment JSON payload too large!");
+            BLEManager::getInstance().sendMessage("{\"error\":\"SINGLE_SEG_JSON_TOO_LARGE\"}");
+            break; // Exit case
+        }
+        memcpy(_incomingJsonBuffer, payload, payloadLen);
+        _incomingJsonBuffer[payloadLen] = '\0'; // Ensure null termination
+        processSingleSegmentJson(_incomingJsonBuffer);
         break;
     }
-    case CMD_ACK:
+    case CMD_ACK_GENERIC: // Use CMD_ACK_GENERIC
         handleAck();
         sendGenericAck = false;
         break;
@@ -170,7 +177,7 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
 
     if (sendGenericAck)
     {
-        uint8_t ack_payload[] = {CMD_ACK};
+        uint8_t ack_payload[] = {(uint8_t)CMD_ACK_GENERIC}; // Use CMD_ACK_GENERIC
         BLEManager::getInstance().sendMessage(ack_payload, 1);
         Serial.println("-> Sent Generic ACK");
     }
@@ -211,7 +218,7 @@ void BinaryCommandHandler::handleSetAllSegmentConfigsCommand(bool viaSerial)
     memset(_incomingJsonBuffer, 0, sizeof(_incomingJsonBuffer));
     _expectedSegmentsToReceive = 0;
     _segmentsReceivedInBatch = 0;
-    uint8_t ack_payload[] = {CMD_ACK};
+    uint8_t ack_payload[] = {(uint8_t)CMD_ACK_GENERIC}; // Use CMD_ACK_GENERIC
     BLEManager::getInstance().sendMessage(ack_payload, 1);
     Serial.println("-> Sent ACK for CMD_SET_ALL_SEGMENT_CONFIGS initiation.");
 }
@@ -228,7 +235,7 @@ void BinaryCommandHandler::handleGetAllEffectsCommand(bool viaSerial)
     _isSerialEffectsTest = viaSerial;
 
     uint8_t count_payload[3];
-    count_payload[0] = CMD_GET_ALL_EFFECTS;
+    count_payload[0] = (uint8_t)CMD_GET_ALL_EFFECTS; // Cast to uint8_t
     count_payload[1] = (_expectedEffectsToSend >> 8) & 0xFF;
     count_payload[2] = _expectedEffectsToSend & 0xFF;
 
@@ -268,7 +275,7 @@ void BinaryCommandHandler::processIncomingAllSegmentsData(const uint8_t *data, s
         {
             Serial.println("Batch config fully received. Parsing...");
             Serial.println(_incomingJsonBuffer);
-            handleBatchConfigJson(_incomingJsonBuffer);
+            handleBatchConfigJson(_incomingJsonBuffer); // Now calls the member function
             _incomingBatchState = IncomingBatchState::IDLE;
             _jsonBufferIndex = 0;
             memset(_incomingJsonBuffer, 0, sizeof(_incomingJsonBuffer));
@@ -285,7 +292,7 @@ void BinaryCommandHandler::processIncomingAllSegmentsData(const uint8_t *data, s
             _incomingBatchState = IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON;
             _jsonBufferIndex = 0;
             memset(_incomingJsonBuffer, 0, sizeof(_incomingJsonBuffer));
-            uint8_t ack_payload[] = {CMD_ACK};
+            uint8_t ack_payload[] = {(uint8_t)CMD_ACK_GENERIC}; // Use CMD_ACK_GENERIC
             BLEManager::getInstance().sendMessage(ack_payload, 1);
             Serial.println("-> Sent ACK for segment count.");
         }
@@ -312,7 +319,7 @@ void BinaryCommandHandler::processIncomingAllSegmentsData(const uint8_t *data, s
 
             _segmentsReceivedInBatch++;
 
-            uint8_t ack_payload[] = {CMD_ACK};
+            uint8_t ack_payload[] = {(uint8_t)CMD_ACK_GENERIC}; // Use CMD_ACK_GENERIC
             BLEManager::getInstance().sendMessage(ack_payload, 1);
             Serial.print("-> Sent ACK for segment ");
             Serial.print(_segmentsReceivedInBatch);
@@ -329,6 +336,92 @@ void BinaryCommandHandler::processIncomingAllSegmentsData(const uint8_t *data, s
         }
     }
 }
+
+// *** START: Added / Corrected Member Function Definitions ***
+
+void BinaryCommandHandler::handleBatchConfigJson(const char* json)
+{
+    StaticJsonDocument<2048> doc;
+    DeserializationError error = deserializeJson(doc, json);
+
+    if (error)
+    {
+        Serial.print("ERR: BinaryCommandHandler::handleBatchConfigJson JSON parse error: ");
+        Serial.println(error.c_str());
+        BLEManager::getInstance().sendMessage("{\"error\":\"JSON_PARSE_ERROR\"}");
+        return;
+    }
+
+    if (strip)
+    {
+        strip->clearUserSegments();
+        JsonArray segments = doc["segments"];
+        for (JsonObject segData : segments)
+        {
+            const char* name = segData["name"] | "";
+            uint16_t start = segData["startLed"];
+            uint16_t end = segData["endLed"];
+            uint8_t brightness = segData["brightness"] | 255;
+            const char* effectNameStr = segData["effect"] | "SolidColor";
+
+            PixelStrip::Segment *targetSeg;
+            if (strcmp(name, "all") == 0)
+            {
+                targetSeg = strip->getSegments()[0];
+                targetSeg->setRange(start, end);
+            }
+            else
+            {
+                strip->addSection(start, end, name);
+                targetSeg = strip->getSegments().back();
+            }
+
+            targetSeg->setBrightness(brightness);
+            if (targetSeg->activeEffect)
+                delete targetSeg->activeEffect;
+            targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
+
+            if (targetSeg->activeEffect)
+            {
+                for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i)
+                {
+                    EffectParameter *p = targetSeg->activeEffect->getParameter(i);
+                    if (segData.containsKey(p->name))
+                    {
+                        switch (p->type)
+                        {
+                        case ParamType::INTEGER:
+                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<int>());
+                            break;
+                        case ParamType::FLOAT:
+                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<float>());
+                            break;
+                        case ParamType::COLOR:
+                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<uint32_t>());
+                            break;
+                        case ParamType::BOOLEAN:
+                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<bool>());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        strip->show();
+        Serial.println("OK: Batch configuration applied.");
+        BLEManager::getInstance().sendMessage("{\"status\":\"OK\"}");
+    }
+}
+
+IncomingBatchState BinaryCommandHandler::getIncomingBatchState() const {
+    return _incomingBatchState;
+}
+
+bool BinaryCommandHandler::isSerialBatchActive() const {
+    return _isSerialBatch;
+}
+
+// *** END: Added / Corrected Member Function Definitions ***
 
 void BinaryCommandHandler::handleSetColor(const uint8_t *payload, size_t len)
 {
@@ -559,7 +652,7 @@ void BinaryCommandHandler::handleGetLedCount()
 {
     Serial.println("CMD: Get LED Count");
     uint8_t response[3];
-    response[0] = CMD_GET_LED_COUNT;
+    response[0] = (uint8_t)CMD_GET_LED_COUNT;
     response[1] = (LED_COUNT >> 8) & 0xFF;
     response[2] = LED_COUNT & 0xFF;
     BLEManager::getInstance().sendMessage(response, 3);
@@ -666,13 +759,13 @@ void BinaryCommandHandler::handleSetEffectParameter(const uint8_t *payload, size
         BLEManager::getInstance().sendMessage("{\"error\":\"Invalid segment ID\"}");
         return;
     }
-    if ((size_t)3 + nameLen >= len)
-    {
-        Serial.println("ERR: Invalid parameter name length or missing value data.");
-        BLEManager::getInstance().sendMessage("{\"error\":\"Invalid parameter data\"}");
+    // Use fixed-size buffer for paramName to avoid VLA warning
+    char paramName[64]; // Assuming max param name length is less than 63 characters
+    if (nameLen >= sizeof(paramName)) {
+        Serial.println("ERR: Parameter name too long.");
+        BLEManager::getInstance().sendMessage("{\"error\":\"PARAM_NAME_TOO_LONG\"}");
         return;
     }
-    char paramName[nameLen + 1];
     memcpy(paramName, payload + 3, nameLen);
     paramName[nameLen] = '\0';
 
