@@ -62,7 +62,8 @@ enum class IncomingBatchState
     EXPECTING_BATCH_CONFIG_JSON,        ///< Expecting the full JSON payload for a batch config.
     EXPECTING_ALL_SEGMENTS_COUNT,       ///< Expecting the total count of segments for a batch update.
     EXPECTING_ALL_SEGMENTS_JSON,        ///< Expecting individual segment JSON payloads.
-    EXPECTING_EFFECT_ACK                ///< Waiting for an ACK before sending the next effect's info.
+    EXPECTING_EFFECT_ACK,               ///< Waiting for an ACK before sending the next effect's info.
+    EXPECTING_SEGMENT_ACK               ///< Waiting for an ACK before sending the next segment's info.
 };
 
 /**
@@ -138,11 +139,15 @@ private:
     bool _isSerialBatch;                ///< Flag to indicate if the current batch operation is via Serial.
     volatile bool _ackReceived;         ///< Flag set when an ACK is received (used for handshake).
     unsigned long _ackTimeoutStart;     ///< @brief Timestamp when ACK waiting started.
-    const unsigned long ACK_WAIT_TIMEOUT_MS = 1000; ///< @brief Timeout duration in milliseconds for waiting for an ACK.
+    const unsigned long ACK_WAIT_TIMEOUT_MS = 5000; ///< @brief Timeout duration in milliseconds for waiting for an ACK.
     uint16_t _expectedSegmentsToReceive; ///< Expected number of segments in an incoming batch.
     uint16_t _segmentsReceivedInBatch;   ///< Number of segments received so far in a batch.
     uint16_t _expectedEffectsToSend;     ///< Total number of effects to send.
     uint16_t _effectsSentInBatch;        ///< Number of effects sent so far.
+
+    // NEW variables for outgoing segment batch
+    uint16_t _expectedSegmentsToSend_Out; ///< Total number of segments to send in an outgoing batch.
+    uint16_t _segmentsSentInBatch_Out;   ///< Number of segments sent so far in an outgoing batch.
 
     // --- Helper Functions ---
     /**
@@ -242,6 +247,13 @@ private:
      * @return A String containing the JSON representation of the effect's info.
      */
     String buildEffectInfoJson(uint8_t effectIndex);
+
+    /**
+     * @brief Builds a JSON string containing information about a specific segment.
+     * @param segmentIndex The index of the segment to build info for.
+     * @return A String containing the JSON representation of the segment's info.
+     */
+    String buildSegmentInfoJson(uint8_t segmentIndex);
 
     /**
      * @brief Processes incoming data for multi-part commands (batch config, all segments).

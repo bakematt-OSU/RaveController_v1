@@ -19,7 +19,9 @@ BinaryCommandHandler::BinaryCommandHandler()
       _expectedSegmentsToReceive(0),
       _segmentsReceivedInBatch(0),
       _expectedEffectsToSend(0),
-      _effectsSentInBatch(0)
+      _effectsSentInBatch(0),
+      _expectedSegmentsToSend_Out(0), // NEW
+      _segmentsSentInBatch_Out(0)     // NEW
 {
     // Ensure the buffer is cleared on startup
     memset(_incomingJsonBuffer, 0, sizeof(_incomingJsonBuffer));
@@ -52,6 +54,9 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
                 else
                 {
                     BLEManager::getInstance().sendMessage(effectJson);
+                    // Add a small delay here to ensure the previous write completes fully
+                    // This is a common workaround for some BLE stacks that might have internal buffering delays
+                    delay(5); // Add this line
                 }
                 _effectsSentInBatch++;
                 if (_effectsSentInBatch >= _expectedEffectsToSend)
@@ -65,7 +70,48 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
                     Serial.print("Now waiting for ACK to send effect ");
                     Serial.print(_effectsSentInBatch);
                     Serial.println("...");
-                    _ackReceived = false; // Reset ACK for the next expected ACK
+                    _ackReceived = false;        // Reset ACK for the next expected ACK
+                    _ackTimeoutStart = millis(); // Restart timeout for the next ACK
+                }
+            }
+        }
+        return;
+    }
+
+    // NEW: Handle ACK for the get all segments command
+    if (_incomingBatchState == IncomingBatchState::EXPECTING_SEGMENT_ACK)
+    {
+        bool isAck = (data[0] == (uint8_t)CMD_ACK_GENERIC) || (len >= 3 && data[0] == 'a' && data[1] == 'c' && data[2] == 'k');
+        if (isAck)
+        {
+            handleAck(); // Call general ACK handler
+            if (_segmentsSentInBatch_Out < _expectedSegmentsToSend_Out)
+            {
+                // Send next segment
+                String segmentJson = buildSegmentInfoJson(_segmentsSentInBatch_Out);
+                // Decide if serial or BLE, based on _isSerialBatch
+                if (_isSerialBatch)
+                {
+                    Serial.println(segmentJson);
+                }
+                else
+                {
+                    BLEManager::getInstance().sendMessage(segmentJson);
+                    delay(5); // Add this line for segment JSONs too
+                }
+                _segmentsSentInBatch_Out++;
+                if (_segmentsSentInBatch_Out >= _expectedSegmentsToSend_Out)
+                {
+                    Serial.println("OK: All segments sent.");
+                    _incomingBatchState = IncomingBatchState::IDLE;
+                    _isSerialBatch = false; // Reset the flag
+                }
+                else
+                {
+                    Serial.print("Now waiting for ACK to send segment ");
+                    Serial.print(_segmentsSentInBatch_Out);
+                    Serial.println("...");
+                    _ackReceived = false;        // Reset ACK for the next expected ACK
                     _ackTimeoutStart = millis(); // Restart timeout for the next ACK
                 }
             }
@@ -156,7 +202,8 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
     case CMD_SET_SINGLE_SEGMENT_JSON:
     {
         // Use the member buffer for single segment JSON to avoid VLA
-        if (payloadLen >= sizeof(_incomingJsonBuffer)) {
+        if (payloadLen >= sizeof(_incomingJsonBuffer))
+        {
             Serial.println("ERR: Single segment JSON payload too large!");
             BLEManager::getInstance().sendMessage("{\"error\":\"SINGLE_SEG_JSON_TOO_LARGE\"}");
             break; // Exit case
@@ -254,7 +301,7 @@ void BinaryCommandHandler::handleGetAllEffectsCommand(bool viaSerial)
     Serial.println(_expectedEffectsToSend);
     Serial.println("Now waiting for ACK to send first effect...");
     _incomingBatchState = IncomingBatchState::EXPECTING_EFFECT_ACK;
-    _ackReceived = false; // Set to false to wait for the first ACK
+    _ackReceived = false;        // Set to false to wait for the first ACK
     _ackTimeoutStart = millis(); // Start timeout for the first ACK
 }
 
@@ -343,7 +390,7 @@ void BinaryCommandHandler::processIncomingAllSegmentsData(const uint8_t *data, s
 
 // *** START: Added / Corrected Member Function Definitions ***
 
-void BinaryCommandHandler::handleBatchConfigJson(const char* json)
+void BinaryCommandHandler::handleBatchConfigJson(const char *json)
 {
     StaticJsonDocument<2048> doc;
     DeserializationError error = deserializeJson(doc, json);
@@ -362,11 +409,11 @@ void BinaryCommandHandler::handleBatchConfigJson(const char* json)
         JsonArray segments = doc["segments"];
         for (JsonObject segData : segments)
         {
-            const char* name = segData["name"] | "";
+            const char *name = segData["name"] | "";
             uint16_t start = segData["startLed"];
             uint16_t end = segData["endLed"];
             uint8_t brightness = segData["brightness"] | 255;
-            const char* effectNameStr = segData["effect"] | "SolidColor";
+            const char *effectNameStr = segData["effect"] | "SolidColor";
 
             PixelStrip::Segment *targetSeg;
             if (strcmp(name, "all") == 0)
@@ -417,18 +464,23 @@ void BinaryCommandHandler::handleBatchConfigJson(const char* json)
     }
 }
 
-IncomingBatchState BinaryCommandHandler::getIncomingBatchState() const {
+IncomingBatchState BinaryCommandHandler::getIncomingBatchState() const
+{
     return _incomingBatchState;
 }
 
-bool BinaryCommandHandler::isSerialBatchActive() const {
+bool BinaryCommandHandler::isSerialBatchActive() const
+{
     return _isSerialBatch;
 }
 
 // Implementation of the update method to handle timeouts for ACKs
-void BinaryCommandHandler::update() {
-    if (_incomingBatchState == IncomingBatchState::EXPECTING_EFFECT_ACK) {
-        if (!_ackReceived && (millis() - _ackTimeoutStart > ACK_WAIT_TIMEOUT_MS)) {
+void BinaryCommandHandler::update()
+{
+    if (_incomingBatchState == IncomingBatchState::EXPECTING_EFFECT_ACK)
+    {
+        if (!_ackReceived && (millis() - _ackTimeoutStart > ACK_WAIT_TIMEOUT_MS))
+        {
             Serial.println("WARN: ACK timeout reached while expecting effect ACK. Resetting batch state.");
             // Reset state after timeout
             _incomingBatchState = IncomingBatchState::IDLE;
@@ -436,6 +488,124 @@ void BinaryCommandHandler::update() {
             _expectedEffectsToSend = 0;
             _isSerialEffectsTest = false;
         }
+    }
+    else if (_incomingBatchState == IncomingBatchState::EXPECTING_SEGMENT_ACK)
+    { // NEW BLOCK
+        if (!_ackReceived && (millis() - _ackTimeoutStart > ACK_WAIT_TIMEOUT_MS))
+        {
+            Serial.println("WARN: ACK timeout reached while expecting segment ACK. Resetting batch state.");
+            // Reset state after timeout for segments
+            _incomingBatchState = IncomingBatchState::IDLE;
+            _segmentsSentInBatch_Out = 0;
+            _expectedSegmentsToSend_Out = 0;
+            _isSerialBatch = false;
+        }
+    }
+}
+
+// NEW: buildSegmentInfoJson function
+String BinaryCommandHandler::buildSegmentInfoJson(uint8_t segmentIndex)
+{
+    if (!strip || segmentIndex >= strip->getSegments().size())
+    {
+        return "{\"error\":\"Invalid segment index or strip not ready\"}";
+    }
+
+    PixelStrip::Segment *s = strip->getSegments()[segmentIndex];
+
+    StaticJsonDocument<512> doc; // Adjust size if segments can be very large
+    JsonObject segObj = doc.to<JsonObject>();
+    segObj["id"] = s->getId();
+    segObj["name"] = s->getName();
+    segObj["startLed"] = s->startIndex();
+    segObj["endLed"] = s->endIndex();
+    segObj["brightness"] = s->getBrightness();
+
+    if (s->activeEffect)
+    {
+        segObj["effect"] = s->activeEffect->getName();
+        for (int i = 0; i < s->activeEffect->getParameterCount(); ++i)
+        {
+            EffectParameter *p = s->activeEffect->getParameter(i);
+            switch (p->type)
+            {
+            case ParamType::INTEGER:
+                segObj[p->name] = p->value.intValue;
+                break;
+            case ParamType::FLOAT:
+                segObj[p->name] = p->value.floatValue;
+                break;
+            case ParamType::COLOR:
+                segObj[p->name] = p->value.colorValue;
+                break;
+            case ParamType::BOOLEAN:
+                segObj[p->name] = p->value.boolValue;
+                break;
+            }
+        }
+    }
+    else
+    {
+        segObj["effect"] = "None";
+    }
+
+    String response;
+    serializeJson(doc, response);
+    return response;
+}
+
+void BinaryCommandHandler::handleGetAllSegmentConfigs(bool viaSerial)
+{
+    _isSerialBatch = viaSerial;
+    if (!viaSerial)
+    {
+        Serial.println("CMD: Get All Segment Configurations - Initiated.");
+    }
+
+    _expectedSegmentsToSend_Out = strip ? strip->getSegments().size() : 0;
+    _segmentsSentInBatch_Out = 0;
+
+    // Send count of segments first
+    uint8_t count_payload[3];
+    count_payload[0] = (uint8_t)CMD_GET_ALL_SEGMENT_CONFIGS; // Command for batch segment config
+    count_payload[1] = (_expectedSegmentsToSend_Out >> 8) & 0xFF;
+    count_payload[2] = _expectedSegmentsToSend_Out & 0xFF;
+
+    if (viaSerial)
+    {
+        Serial.write(count_payload, 3);
+    }
+    else
+    {
+        BLEManager::getInstance().sendMessage(count_payload, 3);
+    }
+
+    Serial.print("-> Sent segment count: ");
+    Serial.println(_expectedSegmentsToSend_Out);
+
+    if (_expectedSegmentsToSend_Out > 0)
+    {
+        Serial.println("Now waiting for ACK to send first segment...");
+        _incomingBatchState = IncomingBatchState::EXPECTING_SEGMENT_ACK; // Transition to waiting for ACK
+        _ackReceived = false;                                            // Set to false to wait for the first ACK
+        _ackTimeoutStart = millis();                                     // Start timeout for the first ACK
+
+        // Send the first segment immediately after sending the count, if any segments exist
+        String segmentJson = buildSegmentInfoJson(_segmentsSentInBatch_Out);
+        if (_isSerialBatch)
+        {
+            Serial.println(segmentJson);
+        }
+        else
+        {
+            BLEManager::getInstance().sendMessage(segmentJson);
+        }
+        _segmentsSentInBatch_Out++;
+    }
+    else
+    {
+        Serial.println("OK: No segments to send.");
+        _incomingBatchState = IncomingBatchState::IDLE; // No segments, go back to IDLE
     }
 }
 
@@ -527,17 +697,17 @@ void BinaryCommandHandler::handleSetBrightness(const uint8_t *payload, size_t le
         Serial.println("ERR: Strip not initialized!");
         return;
     }
-    
+
     // Iterate through all segments and set their brightness.
     uint8_t newBrightness = payload[0];
-    for (auto* s : strip->getSegments()) {
+    for (auto *s : strip->getSegments())
+    {
         s->setBrightness(newBrightness);
     }
 
     Serial.print("OK: Global Brightness set for all segments to ");
     Serial.println(newBrightness);
 }
-
 
 void BinaryCommandHandler::handleSetSegmentBrightness(const uint8_t *payload, size_t len)
 {
@@ -779,7 +949,8 @@ void BinaryCommandHandler::handleSetEffectParameter(const uint8_t *payload, size
     }
     // Use fixed-size buffer for paramName to avoid VLA warning
     char paramName[64]; // Assuming max param name length is less than 63 characters
-    if (nameLen >= sizeof(paramName)) {
+    if (nameLen >= sizeof(paramName))
+    {
         Serial.println("ERR: Parameter name too long.");
         BLEManager::getInstance().sendMessage("{\"error\":\"PARAM_NAME_TOO_LONG\"}");
         return;
@@ -872,64 +1043,8 @@ void BinaryCommandHandler::handleSetEffectParameter(const uint8_t *payload, size
     }
 }
 
-void BinaryCommandHandler::handleGetAllSegmentConfigs(bool viaSerial)
-{
-    Serial.println("CMD: Get All Segment Configurations");
-    StaticJsonDocument<2048> doc;
-    JsonArray segments = doc.createNestedArray("segments");
-    if (strip)
-    {
-        for (auto *s : strip->getSegments())
-        {
-            JsonObject segObj = segments.createNestedObject();
-            segObj["id"] = s->getId();
-            segObj["name"] = s->getName();
-            segObj["startLed"] = s->startIndex();
-            segObj["endLed"] = s->endIndex();
-            segObj["brightness"] = s->getBrightness();
-            if (s->activeEffect) {
-                segObj["effect"] = s->activeEffect->getName();
-                for (int i = 0; i < s->activeEffect->getParameterCount(); ++i)
-                {
-                    EffectParameter *p = s->activeEffect->getParameter(i);
-                    switch (p->type)
-                    {
-                    case ParamType::INTEGER:
-                        segObj[p->name] = p->value.intValue;
-                        break;
-                    case ParamType::FLOAT:
-                        segObj[p->name] = p->value.floatValue;
-                        break;
-                    case ParamType::COLOR:
-                        segObj[p->name] = p->value.colorValue;
-                        break;
-                    case ParamType::BOOLEAN:
-                        segObj[p->name] = p->value.boolValue;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    char responseBuffer[2048];
-    size_t length = serializeJson(doc, responseBuffer, sizeof(responseBuffer));
-
-    if (viaSerial)
-    {
-        Serial.print("-> Sending All Segment Configs JSON via Serial (");
-        Serial.print(length);
-        Serial.println(" bytes)");
-        Serial.println(responseBuffer);
-    }
-    else
-    {
-        Serial.print("-> Sending All Segment Configs JSON via BLE (");
-        Serial.print(length);
-        Serial.println(" bytes)");
-        BLEManager::getInstance().sendMessage((const uint8_t *)responseBuffer, length);
-    }
-}
+// The original handleGetAllSegmentConfigs is modified above and the previous content is removed.
+// The new buildSegmentInfoJson is also added above.
 
 void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
 {
@@ -1019,7 +1134,6 @@ void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
                 }
             }
         }
-
 
         Serial.print("OK: Segment ID ");
         Serial.print(targetSeg->getId());
