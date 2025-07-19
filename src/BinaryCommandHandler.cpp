@@ -114,6 +114,10 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
     case CMD_SET_EFFECT_PARAMETER:
         handleSetEffectParameter(payload, payloadLen);
         break;
+    case CMD_SAVE_CONFIG:
+        handleSaveConfig();
+        sendGenericAck = false;
+        break;
     case CMD_GET_STATUS:
         handleGetStatus();
         sendGenericAck = false;
@@ -169,6 +173,21 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
         uint8_t ack_payload[] = {CMD_ACK};
         BLEManager::getInstance().sendMessage(ack_payload, 1);
         Serial.println("-> Sent Generic ACK");
+    }
+}
+
+void BinaryCommandHandler::handleSaveConfig()
+{
+    Serial.println("CMD: Save Config");
+    if (saveConfig())
+    {
+        Serial.println("-> OK: Config saved.");
+        BLEManager::getInstance().sendMessage("{\"status\":\"OK\", \"message\":\"Config saved\"}");
+    }
+    else
+    {
+        Serial.println("-> ERR: Failed to save config.");
+        BLEManager::getInstance().sendMessage("{\"error\":\"Failed to save config\"}");
     }
 }
 
@@ -863,7 +882,6 @@ void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
             targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
         }
 
-        // *** START FIX ***
         // This block now correctly parses parameters from the top level of the JSON object.
         if (targetSeg->activeEffect)
         {
@@ -891,7 +909,6 @@ void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
                 }
             }
         }
-        // *** END FIX ***
 
 
         Serial.print("OK: Segment ID ");

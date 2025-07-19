@@ -40,6 +40,7 @@ enum BleCommand : uint8_t
     CMD_SET_ALL_SEGMENT_CONFIGS = 0x0F, ///< Set the configuration for all segments from a data stream.
     CMD_GET_ALL_EFFECTS = 0x10,         ///< Request a list of all available effects.
     CMD_SET_SINGLE_SEGMENT_JSON = 0x11, ///< Set the configuration for a single segment from a JSON string.
+    CMD_SAVE_CONFIG = 0x12,             ///< Save the current configuration to flash memory.
 
     // Response codes
     CMD_ACK = 0xA0, ///< Acknowledgment response code.
@@ -144,6 +145,7 @@ private:
     void handleSetSegmentRange(const uint8_t *payload, size_t len);
     void handleSetLedCount(const uint8_t *payload, size_t len);
     void handleSetEffectParameter(const uint8_t *payload, size_t len);
+    void handleSaveConfig();
 
     void handleGetStatus();
     void handleGetLedCount();
