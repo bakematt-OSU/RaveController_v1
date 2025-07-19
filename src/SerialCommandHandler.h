@@ -39,6 +39,9 @@ private:
     void handleGetEffectInfo(char* args);
     void handleSetParameter(char* args);
     void handleBatchConfig(const char* json);
+    void handleBleReset();
+    void handleBleStatus();
+    void handleHelp();
 
     void handleGetAllSegmentConfigsSerial();
     void handleGetAllEffectsSerial();

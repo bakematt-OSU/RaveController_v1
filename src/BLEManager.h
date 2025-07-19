@@ -78,6 +78,11 @@ public:
     void sendMessage(const uint8_t *data, size_t len);
 
     /**
+     * @brief Resets the BLE stack.
+    */
+    void reset();
+
+    /**
      * @brief Checks if a central device is currently connected.
      * @return True if connected, false otherwise.
      */
@@ -104,7 +109,7 @@ private:
     BLEService bleService;              ///< The main BLE service for the controller.
     BLECharacteristic txCharacteristic; ///< For sending data TO the app (Arduino -> App).
     BLECharacteristic rxCharacteristic; ///< For receiving data FROM the app (App -> Arduino).
-
+    const char *deviceName_;            ///< Stores the device name for reset purposes.
     CommandCallback commandHandlerCallback; ///< Function pointer to the command handler.
 };
 

@@ -38,6 +38,7 @@ BLEManager::BLEManager() : bleService(SERVICE_UUID),
                            txCharacteristic(TX_CHAR_UUID, BLENotify, 512), // Use a large size for notifications
                            // RX characteristic is set to WRITE, so the app can send commands.
                            rxCharacteristic(RX_CHAR_UUID, BLEWrite, 512), // Allow large writes for batch configs
+                           deviceName_(nullptr),
                            commandHandlerCallback(nullptr)
 {
 }
@@ -47,6 +48,7 @@ BLEManager::BLEManager() : bleService(SERVICE_UUID),
 void BLEManager::begin(const char *deviceName, CommandCallback callback)
 {
     Serial.println("BLE: Initializing BLE Manager...");
+    deviceName_ = deviceName;
     if (!BLE.begin())
     {
         Serial.println("FATAL: Starting BLE failed!");
@@ -88,6 +90,16 @@ void BLEManager::update()
     // This is the only function that needs to be called in the main loop()
     // It processes all incoming BLE events.
     BLE.poll();
+}
+
+void BLEManager::reset()
+{
+    Serial.println("BLE: Resetting BLE stack...");
+    BLE.stopAdvertise();
+    BLE.end();
+    delay(200);
+    begin(deviceName_, commandHandlerCallback);
+    Serial.println("BLE: Reset complete.");
 }
 
 void BLEManager::sendMessage(const String &message)
@@ -169,9 +181,7 @@ void BLEManager::handleConnect(BLEDevice central)
     Serial.print(" (Name: ");
     Serial.print(central.localName());
     Serial.println(")");
-    reAdvertisingMessagePrinted = false; // Reset the flag on successful connection
 }
-
 
 void BLEManager::handleDisconnect(BLEDevice central)
 {

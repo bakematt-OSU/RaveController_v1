@@ -2,6 +2,7 @@
 #include "globals.h"
 #include "EffectLookup.h"
 #include "ConfigManager.h"
+#include "BLEManager.h"
 #include <ArduinoJson.h>
 #include "BinaryCommandHandler.h"
 #include <cstring>
@@ -9,6 +10,7 @@
 
 // Forward declare the binary command handler instance
 extern BinaryCommandHandler binaryCommandHandler;
+extern BLEManager &bleManager;
 
 // --- Main Command Handling Logic ---
 
@@ -26,7 +28,9 @@ void SerialCommandHandler::handleCommand(char *command)
     // The rest of the original string is now in saveptr
     char *args = strtok_r(NULL, "", &saveptr);
 
-    if (strcmp(cmd, "listeffects") == 0)
+    if (strcmp(cmd, "help") == 0)
+        handleHelp();
+    else if (strcmp(cmd, "listeffects") == 0)
         handleListEffects();
     else if (strcmp(cmd, "getstatus") == 0)
         handleGetStatus();
@@ -62,15 +66,57 @@ void SerialCommandHandler::handleCommand(char *command)
         handleSetAllSegmentConfigsSerial();
     else if (strcmp(cmd, "setsegmentjson") == 0)
         handleSetSingleSegmentJson(args);
+    else if (strcmp(cmd, "blestatus") == 0)
+        handleBleStatus();
+    else if (strcmp(cmd, "blereset") == 0)
+        handleBleReset();
     else
     {
         Serial.print("ERR: Unknown command '");
         Serial.print(cmd);
-        Serial.println("'");
+        Serial.println("'. Type 'help' for a list of commands.");
     }
 }
 
 // --- Command Implementations using C-Strings ---
+
+void SerialCommandHandler::handleHelp()
+{
+    Serial.println("\n--- Serial Command Help ---");
+    Serial.println("Commands are not case-sensitive. Arguments are separated by spaces.");
+    Serial.println("\n[General Commands]");
+    Serial.println("  help                         - Shows this help message.");
+    Serial.println("  getstatus                    - Prints the current status of the device as JSON.");
+    Serial.println("  getconfig                    - Prints the saved configuration from the filesystem.");
+    Serial.println("  saveconfig                   - Saves the current configuration to the filesystem.");
+    Serial.println("\n[LED Configuration]");
+    Serial.println("  getledcount                  - Prints the current LED count.");
+    Serial.println("  setledcount <count>          - Sets the total number of LEDs and restarts.");
+    Serial.println("\n[Segment Management]");
+    Serial.println("  listsegments                 - Lists all current segments.");
+    Serial.println("  clearsegments                - Deletes all user-defined segments.");
+    Serial.println("  addsegment <start> <end> [name]");
+    Serial.println("                               - Adds a new segment.");
+    Serial.println("  setsegmentjson <json>        - Configures a single segment using a JSON string.");
+    Serial.println("\n[Effect & Parameter Control]");
+    Serial.println("  listeffects                  - Lists all available effects.");
+    Serial.println("  seteffect <seg_id> <effect>  - Sets an effect on a specific segment.");
+    Serial.println("  geteffectinfo <seg_id> <effect>");
+    Serial.println("                               - Gets parameter info for an effect.");
+    Serial.println("  setparam <seg_id> <param> <value>");
+    Serial.println("                               - Sets a parameter for the active effect on a segment.");
+    Serial.println("  getparams <seg_id>           - Gets parameters for the active effect on a segment.");
+    Serial.println("\n[Bluetooth Commands]");
+    Serial.println("  blestatus                    - Checks the current Bluetooth connection status.");
+    Serial.println("  blereset                     - Resets the Bluetooth module.");
+    Serial.println("\n[Advanced/Batch Commands]");
+    Serial.println("  batchconfig <json>           - Applies a full configuration from a JSON string.");
+    Serial.println("  getallsegmentconfigs         - Gets the full configuration of all segments as JSON.");
+    Serial.println("  getalleffects                - Gets detailed information for all effects as JSON.");
+    Serial.println("  setallsegmentconfigs         - Initiates receiving segment configurations.");
+    Serial.println("--- End of Help ---\n");
+}
+
 
 void SerialCommandHandler::handleListEffects()
 {
@@ -452,4 +498,16 @@ void SerialCommandHandler::handleGetAllEffectsSerial()
 void SerialCommandHandler::handleSetAllSegmentConfigsSerial()
 {
     binaryCommandHandler.handleSetAllSegmentConfigsCommand(true);
+}
+
+void SerialCommandHandler::handleBleReset()
+{
+    Serial.println("Initiating BLE reset from serial command...");
+    bleManager.reset();
+}
+
+void SerialCommandHandler::handleBleStatus()
+{
+    Serial.print("BLE Status: ");
+    Serial.println(bleManager.isConnected() ? "Connected" : "Disconnected");
 }
