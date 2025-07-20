@@ -25,6 +25,7 @@ enum BleCommand : uint8_t
     CMD_GET_EFFECT_INFO = 0x0B,         ///< Requests information about a specific effect, including its parameters.
     CMD_SET_LED_COUNT = 0x0C,           ///< Sets the total number of LEDs and triggers a restart.
     CMD_GET_LED_COUNT = 0x0D,           ///< Requests the current total number of LEDs.
+    //GETTERS
     CMD_GET_ALL_SEGMENT_CONFIGS = 0x0E, ///< Requests the full configuration of all segments as JSON.
     CMD_SET_ALL_SEGMENT_CONFIGS = 0x0F, ///< Initiates receiving multiple segment configurations in a batch.
     CMD_GET_ALL_EFFECTS = 0x10,         ///< Requests detailed information for all available effects.

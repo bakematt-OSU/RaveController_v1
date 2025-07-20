@@ -182,12 +182,6 @@ void BLEManager::handleConnect(BLEDevice central)
     Serial.print(" (Name: ");
     Serial.print(central.localName());
     Serial.println(")");
-
-    // Send CMD_READY to the connected device once ready to receive commands.
-    // By using CMD_READY directly, we avoid hardcoding the value 0xD0.
-    uint8_t ready_cmd[] = {static_cast<uint8_t>(CMD_READY)}; // Use the enum value
-    sendMessage(ready_cmd, 1);
-    Serial.println("BLE: Sent CMD_READY to app.");
 }
 
 void BLEManager::handleDisconnect(BLEDevice central)
