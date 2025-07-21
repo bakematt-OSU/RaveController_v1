@@ -35,5 +35,7 @@ extern bool reAdvertisingMessagePrinted; //
 
 // --- NEW: Global for heartbeat tracking ---
 extern unsigned long lastHeartbeatReceived;
+extern bool isHeartbeatActive; // Add this line
+
 
 #endif // GLOBALS_H

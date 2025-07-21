@@ -29,8 +29,11 @@ uint16_t LED_COUNT = 585; // Default value
 const char *STATE_FILE = "/littlefs/state.json";
 LittleFS_MBED myFS;
 
+// --- Heartbeat variables ---
 unsigned long lastHeartbeatReceived = 0;
+bool isHeartbeatActive = false; // Define and initialize the new flag
 #define HEARTBEAT_TIMEOUT 5000
+
 
 // MODIFIED: Use the new constant from Config.h to define the array
 uint8_t effectScratchpad[EFFECT_SCRATCHPAD_SIZE];
@@ -169,20 +172,33 @@ void loop()
     unsigned long currentMillis = millis();
 
     bleManager.update();
-    binaryCommandHandler.update(); // Added: Call the update method for timeout checks
+    binaryCommandHandler.update();
 
-    // --- New Heartbeat Check ---
-    if (bleManager.isConnected() && (millis() - lastHeartbeatReceived > HEARTBEAT_TIMEOUT))
+    // This timeout check is now correct because the variables below are managed properly.
+    if (bleManager.isConnected() && isHeartbeatActive && (currentMillis - lastHeartbeatReceived > HEARTBEAT_TIMEOUT))
     {
         Serial.println("ERR: Heartbeat timeout! Connection lost. Forcing reset.");
-        bleManager.reset(); // Force a reset to clear the stuck connection
+        isHeartbeatActive = false; // Reset the flag
+        bleManager.reset();
     }
 
+    // This polling block is where the critical change is needed.
     if (currentMillis - lastBleCheck > 500)
     {
         lastBleCheck = currentMillis;
         if (!bleManager.isConnected())
         {
+            // --- *** THE FIX IS HERE *** ---
+            // When not connected, we MUST reset BOTH heartbeat state variables.
+            // This guarantees that the next device to connect starts with a
+            // clean slate and a full grace period.
+
+            isHeartbeatActive = false;
+            lastHeartbeatReceived = currentMillis; // Reset timer to now
+
+            // --- *** END OF FIX *** ---
+
+
             BLE.stopAdvertise();
             BLE.advertise();
 
@@ -211,7 +227,6 @@ void loop()
         strip->show();
     }
 }
-
 // --- Serial Command Processing ---
 void processSerial()
 {

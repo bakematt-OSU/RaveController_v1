@@ -7,6 +7,8 @@
 
 extern PixelStrip *strip;
 extern uint16_t LED_COUNT;
+extern bool isHeartbeatActive; // Make the global flag visible here
+
 
 // Constructor
 BinaryCommandHandler::BinaryCommandHandler()
@@ -135,6 +137,7 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
         lastHeartbeatReceived = millis();
         return; // No other processing needed
     }
+
 
     const uint8_t *payload = data + 1;
     size_t payloadLen = len - 1;
