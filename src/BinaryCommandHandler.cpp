@@ -1079,16 +1079,21 @@ void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
     uint16_t end = doc["endLed"] | 0;
     uint8_t brightness = doc["brightness"] | 255;
     const char *effectNameStr = doc["effect"] | "SolidColor";
-    uint8_t segmentId = doc["id"] | 0;
+    
     PixelStrip::Segment *targetSeg = nullptr;
 
-    if (strcmp(name, "all") == 0)
-    {
-        targetSeg = strip->getSegments()[0];
-        targetSeg->setRange(start, end);
-    }
-    else
-    {
+    // --- FIX STARTS HERE ---
+    // Check if we are in the middle of a batch update.
+    if (_incomingBatchState == IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON) {
+        // In a batch update, we have already cleared old segments.
+        // We must ALWAYS create a new one and ignore any incoming ID.
+        strip->addSection(start, end, name);
+        targetSeg = strip->getSegments().back();
+
+    } else {
+        // This is a single segment update (CMD_SET_SINGLE_SEGMENT_JSON),
+        // so we use the find-or-create logic.
+        uint8_t segmentId = doc["id"] | 0; // The problematic ID parsing
         for (auto *s : strip->getSegments())
         {
             if (s->getId() == segmentId)
@@ -1101,10 +1106,6 @@ void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
         {
             strip->addSection(start, end, name);
             targetSeg = strip->getSegments().back();
-        }
-        else
-        {
-            targetSeg->setRange(start, end);
         }
     }
 
