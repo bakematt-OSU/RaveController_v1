@@ -337,27 +337,45 @@ bool BinaryCommandHandler::isSerialBatchActive() const
     return _isSerialBatch;
 }
 
-// Implementation of the update method to handle timeouts for ACKs
 void BinaryCommandHandler::update()
 {
+    // Check for ACK timeout when sending effect info
     if (_incomingBatchState == IncomingBatchState::EXPECTING_EFFECT_ACK)
     {
         if (!_ackReceived && (millis() - _ackTimeoutStart > ACK_WAIT_TIMEOUT_MS))
         {
-            Serial.println("WARN: ACK timeout reached while expecting effect ACK. Resetting batch state.");
-            // Reset state after timeout
+            // --- IMPROVED DEBUG MESSAGE FOR EFFECTS ---
+            const char* failedEffectName = getEffectNameFromId(_effectsSentInBatch);
+            Serial.print("WARN: ACK timeout. Expected ACK for effect #");
+            Serial.print(_effectsSentInBatch);
+            Serial.print(" ('");
+            Serial.print(failedEffectName ? failedEffectName : "Unknown");
+            Serial.println("'). Resetting batch state.");
+            // --- END OF IMPROVEMENT ---
+
             _incomingBatchState = IncomingBatchState::IDLE;
             _effectsSentInBatch = 0;
             _expectedEffectsToSend = 0;
             _isSerialEffectsTest = false;
         }
     }
+    // Check for ACK timeout when sending segment configs
     else if (_incomingBatchState == IncomingBatchState::EXPECTING_SEGMENT_ACK)
-    { // NEW BLOCK
+    {
         if (!_ackReceived && (millis() - _ackTimeoutStart > ACK_WAIT_TIMEOUT_MS))
         {
-            Serial.println("WARN: ACK timeout reached while expecting segment ACK. Resetting batch state.");
-            // Reset state after timeout for segments
+            // --- IMPROVED DEBUG MESSAGE FOR SEGMENTS ---
+            const char* failedSegmentName = "Unknown";
+            if (strip && _segmentsSentInBatch_Out < strip->getSegments().size()) {
+                failedSegmentName = strip->getSegments()[_segmentsSentInBatch_Out]->getName();
+            }
+            Serial.print("WARN: ACK timeout. Expected ACK for segment #");
+            Serial.print(_segmentsSentInBatch_Out);
+            Serial.print(" ('");
+            Serial.print(failedSegmentName);
+            Serial.println("'). Resetting batch state.");
+            // --- END OF IMPROVEMENT ---
+
             _incomingBatchState = IncomingBatchState::IDLE;
             _segmentsSentInBatch_Out = 0;
             _expectedSegmentsToSend_Out = 0;
