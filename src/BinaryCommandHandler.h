@@ -11,44 +11,16 @@
  */
 enum BleCommand : uint8_t
 {
-    // OBSOLETE commands are commented out to indicate they are no longer in use.
-    //OBSOLETE:CMD_SET_COLOR = 0x01,
-    //OBSOLETE:CMD_SET_EFFECT = 0x02,
-    //OBSOLETE: CMD_SET_BRIGHTNESS = 0x03,
-    //OBSOLETE:CMD_SET_SEG_BRIGHT = 0x04,
-    CMD_SELECT_SEGMENT = 0x05,          ///< Selects a segment (no-op on current firmware, for app internal use).
-    CMD_CLEAR_SEGMENTS = 0x06,          ///< Clears all user-defined segments.
-    //OBSOLETE: CMD_SET_SEG_RANGE = 0x07,
-    //OBSOLETE: CMD_GET_STATUS = 0x08,
-    CMD_BATCH_CONFIG = 0x09,            ///< Initiates a batch configuration update using a JSON payload.
-    CMD_SET_EFFECT_PARAMETER = 0x0A,    ///< Sets a parameter for an active effect on a segment.
-    CMD_GET_EFFECT_INFO = 0x0B,         ///< Requests information about a specific effect, including its parameters.
-    CMD_SET_LED_COUNT = 0x0C,           ///< Sets the total number of LEDs and triggers a restart.
-    CMD_GET_LED_COUNT = 0x0D,           ///< Requests the current total number of LEDs.
     //GETTERS
+    CMD_GET_LED_COUNT = 0x0D,           ///< Requests the current total number of LEDs.
     CMD_GET_ALL_SEGMENT_CONFIGS = 0x0E, ///< Requests the full configuration of all segments as JSON.
     CMD_SET_ALL_SEGMENT_CONFIGS = 0x0F, ///< Initiates receiving multiple segment configurations in a batch.
     CMD_GET_ALL_EFFECTS = 0x10,         ///< Requests detailed information for all available effects.
-    CMD_SET_SINGLE_SEGMENT_JSON = 0x11, ///< Configures a single segment using a JSON string.
     CMD_SAVE_CONFIG = 0x12,             ///< Saves the current configuration to persistent storage.
 
     CMD_ACK_GENERIC = 0xA0,             ///< Generic acknowledgment for a received command.
-    CMD_ACK_EFFECT_SET = 0xA1,          ///< Acknowledgment for an effect setting command.
-    CMD_ACK_PARAM_SET = 0xA2,           ///< Acknowledgment for a parameter setting command.
-    CMD_ACK_CONFIG_SAVED = 0xA3,        ///< Acknowledgment that configuration has been saved.
-    CMD_ACK_RESTARTING = 0xA4,          ///< Acknowledgment that the device is restarting.
 
     CMD_READY = 0xD0,                   ///< Indicates the device is ready.
-
-    CMD_NACK_UNKNOWN_CMD = 0xE0,        ///< Negative acknowledgment: Unknown command.
-    CMD_NACK_INVALID_PAYLOAD = 0xE1,    ///< Negative acknowledgment: Invalid command payload.
-    CMD_NACK_INVALID_SEGMENT = 0xE2,    ///< Negative acknowledgment: Invalid segment ID.
-    CMD_NACK_NO_EFFECT = 0xE3,          ///< Negative acknowledgment: No active effect on segment.
-    CMD_NACK_UNKNOWN_EFFECT = 0xE4,     ///< Negative acknowledgment: Unknown effect name/ID.
-    CMD_NACK_UNKNOWN_PARAMETER = 0xE5,  ///< Negative acknowledgment: Unknown parameter name.
-    CMD_NACK_JSON_ERROR = 0xE6,         ///< Negative acknowledgment: JSON parsing error.
-    CMD_NACK_FS_ERROR = 0xE7,           ///< Negative acknowledgment: Filesystem error.
-    CMD_NACK_BUFFER_OVERFLOW = 0xE8,    ///< Negative acknowledgment: Buffer overflow during data reception.
 };
 
 /**

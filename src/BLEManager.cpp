@@ -228,7 +228,13 @@ void BLEManager::handleWrite(BLEDevice central, BLECharacteristic characteristic
     // If a command handler callback is registered, call it with the received data.
     if (commandHandlerCallback)
     {
-        Serial.println("BLE RX: Calling command handler");
+        // Serial.println("BLE RX: Calling command handler");
+        Serial.print("BLE RX: Command: ");
+        Serial.print((BleCommand)data[0]); // Print the command type
+        // Serial.print(" (");
+        // Serial.print(len);
+        Serial.println(" bytes)");
+    
         commandHandlerCallback(characteristic.value(), characteristic.valueLength());
         Serial.println("BLE RX: Command handler completed");
     }

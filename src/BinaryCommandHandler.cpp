@@ -119,9 +119,8 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
         return;
     }
 
-    // Handle other multi-part commands
-    if (_incomingBatchState == IncomingBatchState::EXPECTING_BATCH_CONFIG_JSON ||
-        _incomingBatchState == IncomingBatchState::EXPECTING_ALL_SEGMENTS_COUNT ||
+    // Handle multi-part commands related to segment configuration
+    if (_incomingBatchState == IncomingBatchState::EXPECTING_ALL_SEGMENTS_COUNT ||
         _incomingBatchState == IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON)
     {
         processIncomingAllSegmentsData(data, len);
@@ -136,55 +135,12 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
 
     switch (cmd)
     {
-    // OBSOLETE COMMANDS REMOVED FROM SWITCH:
-    // case CMD_SET_COLOR:
-    //     handleSetColor(payload, payloadLen);
-    //     break;
-    // case CMD_SET_EFFECT:
-    //     handleSetEffect(payload, payloadLen);
-    //     break;
-    // case CMD_SET_BRIGHTNESS:
-    //     handleSetBrightness(payload, payloadLen);
-    //     break;
-    // case CMD_SET_SEG_BRIGHT:
-    //     handleSetSegmentBrightness(payload, payloadLen);
-    //     break;
-    // case CMD_SELECT_SEGMENT:
-    //     handleSelectSegment(payload, payloadLen);
-    //     break;
-    case CMD_CLEAR_SEGMENTS:
-        handleClearSegments();
-        break;
-    // case CMD_SET_SEG_RANGE:
-    //     handleSetSegmentRange(payload, payloadLen);
-    //     break;
-    // case CMD_SET_LED_COUNT:
-    //     handleSetLedCount(payload, payloadLen);
-    //     break;
-    // case CMD_SET_EFFECT_PARAMETER:
-    //     handleSetEffectParameter(payload, payloadLen);
-    //     break;
     case CMD_SAVE_CONFIG:
         handleSaveConfig();
         sendGenericAck = false;
         break;
-    // case CMD_GET_STATUS: // Now handled by higher-level commands or serial
-    //     handleGetStatus();
-    //     sendGenericAck = false;
-    //     break;
     case CMD_GET_LED_COUNT:
         handleGetLedCount();
-        sendGenericAck = false;
-        break;
-    case CMD_GET_EFFECT_INFO:
-        handleGetEffectInfo(payload, payloadLen, false);
-        sendGenericAck = false;
-        break;
-    case CMD_BATCH_CONFIG:
-        _incomingBatchState = IncomingBatchState::EXPECTING_BATCH_CONFIG_JSON;
-        _jsonBufferIndex = 0;
-        memset(_incomingJsonBuffer, 0, sizeof(_incomingJsonBuffer));
-        processIncomingAllSegmentsData(payload, payloadLen);
         sendGenericAck = false;
         break;
     case CMD_GET_ALL_SEGMENT_CONFIGS:
@@ -199,28 +155,20 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
         handleGetAllEffectsCommand(false);
         sendGenericAck = false;
         break;
-    // case CMD_SET_SINGLE_SEGMENT_JSON:
-    // {
-    //     // Use the member buffer for single segment JSON to avoid VLA
-    //     if (payloadLen >= sizeof(_incomingJsonBuffer))
-    //     {
-    //         Serial.println("ERR: Single segment JSON payload too large!");
-    //         BLEManager::getInstance().sendMessage("{\"error\":\"SINGLE_SEG_JSON_TOO_LARGE\"}");
-    //         break; // Exit case
-    //     }
-    //     memcpy(_incomingJsonBuffer, payload, payloadLen);
-    //     _incomingJsonBuffer[payloadLen] = '\0'; // Ensure null termination
-    //     processSingleSegmentJson(_incomingJsonBuffer);
-    //     break;
-    // }
     case CMD_ACK_GENERIC: // Use CMD_ACK_GENERIC
         handleAck();
         sendGenericAck = false;
+        break;
+    case CMD_READY: // CMD_READY is an indicator, not a command to be actively handled with a function call here.
+        Serial.println("CMD: Device Ready received.");
+        sendGenericAck = false; // No ACK needed for a READY signal
         break;
     default:
         Serial.print("ERR: Unknown binary command: 0x");
         Serial.println(cmd, HEX);
         sendGenericAck = false;
+        // Optionally send a NACK for unknown command, but the provided header doesn't list NACK commands
+        // sendNack(CMD_NACK_UNKNOWN_CMD);
         break;
     }
 
@@ -320,19 +268,10 @@ void BinaryCommandHandler::processIncomingAllSegmentsData(const uint8_t *data, s
     _jsonBufferIndex += len;
     _incomingJsonBuffer[_jsonBufferIndex] = '\0'; // Ensure null termination
 
-    if (_incomingBatchState == IncomingBatchState::EXPECTING_BATCH_CONFIG_JSON)
-    {
-        if (strstr(_incomingJsonBuffer, "]}}") != nullptr)
-        {
-            Serial.println("Batch config fully received. Parsing...");
-            Serial.println(_incomingJsonBuffer);
-            handleBatchConfigJson(_incomingJsonBuffer); // Now calls the member function
-            _incomingBatchState = IncomingBatchState::IDLE;
-            _jsonBufferIndex = 0;
-            memset(_incomingJsonBuffer, 0, sizeof(_incomingJsonBuffer));
-        }
-    }
-    else if (_incomingBatchState == IncomingBatchState::EXPECTING_ALL_SEGMENTS_COUNT)
+    // Removed EXPECTING_BATCH_CONFIG_JSON as it's no longer in the enum
+    // if (_incomingBatchState == IncomingBatchState::EXPECTING_BATCH_CONFIG_JSON) { ... }
+
+    if (_incomingBatchState == IncomingBatchState::EXPECTING_ALL_SEGMENTS_COUNT)
     {
         if (_jsonBufferIndex >= 2)
         {
@@ -390,6 +329,19 @@ void BinaryCommandHandler::processIncomingAllSegmentsData(const uint8_t *data, s
 
 // *** START: Added / Corrected Member Function Definitions ***
 
+// handleBatchConfigJson is kept because processIncomingAllSegmentsData might call it
+// if a CMD_BATCH_CONFIG was received, even if the command itself is not in the new enum.
+// However, since CMD_BATCH_CONFIG is removed from the enum, this function is now unused.
+// I will keep it for now, but it could be removed if not called by any other kept logic.
+// Given the new enum, it's likely this function will become entirely obsolete.
+// For now, I'll remove the `CMD_BATCH_CONFIG` case from the switch, but keep the function definition.
+// Re-reading the prompt, the user wants the .cpp to *only* include the listed commands.
+// `handleBatchConfigJson` is not directly linked to a command in the new enum,
+// and if `EXPECTING_BATCH_CONFIG_JSON` is removed from `processIncomingAllSegmentsData`,
+// then `handleBatchConfigJson` will indeed be unused. So, I will remove it.
+
+// Removed handleBatchConfigJson as CMD_BATCH_CONFIG is no longer in the enum and its handling logic is removed from processIncomingAllSegmentsData.
+/*
 void BinaryCommandHandler::handleBatchConfigJson(const char *json)
 {
     StaticJsonDocument<2048> doc;
@@ -463,6 +415,7 @@ void BinaryCommandHandler::handleBatchConfigJson(const char *json)
         BLEManager::getInstance().sendMessage("{\"status\":\"OK\"}");
     }
 }
+*/
 
 IncomingBatchState BinaryCommandHandler::getIncomingBatchState() const
 {
@@ -609,232 +562,10 @@ void BinaryCommandHandler::handleGetAllSegmentConfigs(bool viaSerial)
     }
 }
 
-// *** END: Added / Corrected Member Function Definitions ***
-
-void BinaryCommandHandler::handleSetColor(const uint8_t *payload, size_t len)
-{
-    Serial.println("CMD: Set Color");
-    if (len < 4)
-    {
-        Serial.println("ERR: Payload too short for Set Color");
-        return;
-    }
-    if (!strip)
-    {
-        Serial.println("ERR: Strip not initialized!");
-        return;
-    }
-    uint8_t segId = payload[0];
-    if (segId < strip->getSegments().size())
-    {
-        strip->getSegments()[segId]->setColor(payload[1], payload[2], payload[3]);
-        Serial.print("OK: Seg ");
-        Serial.print(segId);
-        Serial.print(" color set to R:");
-        Serial.print(payload[1]);
-        Serial.print(" G:");
-        Serial.print(payload[2]);
-        Serial.print(" B:");
-        Serial.println(payload[3]);
-    }
-    else
-    {
-        Serial.print("ERR: Invalid segment ID: ");
-        Serial.println(segId);
-    }
-}
-
-void BinaryCommandHandler::handleSetEffect(const uint8_t *payload, size_t len)
-{
-    Serial.println("CMD: Set Effect");
-    if (len < 2)
-    {
-        Serial.println("ERR: Payload too short for Set Effect");
-        return;
-    }
-    if (!strip)
-    {
-        Serial.println("ERR: Strip not initialized!");
-        return;
-    }
-    uint8_t segId = payload[0];
-    uint8_t effectId = payload[1];
-    if (segId >= strip->getSegments().size())
-    {
-        Serial.print("ERR: Invalid segment ID: ");
-        Serial.println(segId);
-        return;
-    }
-    const char *effectName = getEffectNameFromId(effectId);
-    if (effectName)
-    {
-        PixelStrip::Segment *seg = strip->getSegments()[segId];
-        if (seg->activeEffect)
-            delete seg->activeEffect;
-        seg->activeEffect = createEffectByName(effectName, seg);
-        Serial.print("OK: Segment ");
-        Serial.print(segId);
-        Serial.print(" effect set to ");
-        Serial.println(effectName);
-    }
-    else
-    {
-        Serial.print("ERR: Unknown effect ID: ");
-        Serial.println(effectId);
-    }
-}
-
-void BinaryCommandHandler::handleSetBrightness(const uint8_t *payload, size_t len)
-{
-    Serial.println("CMD: Set Brightness (Global)");
-    if (len < 1)
-    {
-        Serial.println("ERR: Payload too short for Set Brightness");
-        return;
-    }
-    if (!strip)
-    {
-        Serial.println("ERR: Strip not initialized!");
-        return;
-    }
-
-    // Iterate through all segments and set their brightness.
-    uint8_t newBrightness = payload[0];
-    for (auto *s : strip->getSegments())
-    {
-        s->setBrightness(newBrightness);
-    }
-
-    Serial.print("OK: Global Brightness set for all segments to ");
-    Serial.println(newBrightness);
-}
-
-void BinaryCommandHandler::handleSetSegmentBrightness(const uint8_t *payload, size_t len)
-{
-    Serial.println("CMD: Set Segment Brightness");
-    if (len < 2)
-    {
-        Serial.println("ERR: Payload too short for Set Seg Brightness");
-        return;
-    }
-    if (!strip)
-    {
-        Serial.println("ERR: Strip not initialized!");
-        return;
-    }
-    uint8_t segId = payload[0];
-    if (segId < strip->getSegments().size())
-    {
-        strip->getSegments()[segId]->setBrightness(payload[1]);
-        Serial.print("OK: Segment ");
-        Serial.print(segId);
-        Serial.print(" brightness set to ");
-        Serial.println(payload[1]);
-    }
-    else
-    {
-        Serial.print("ERR: Invalid segment ID: ");
-        Serial.println(segId);
-    }
-}
-
-void BinaryCommandHandler::handleSelectSegment(const uint8_t *payload, size_t len)
-{
-    Serial.println("CMD: Select segment (no-op on firmware)");
-}
-
-void BinaryCommandHandler::handleClearSegments()
-{
-    Serial.println("CMD: Clear Segments");
-    if (strip)
-    {
-        strip->clearUserSegments();
-        Serial.println("OK: User segments cleared");
-    }
-    else
-    {
-        Serial.println("ERR: Strip not initialized");
-    }
-}
-
-void BinaryCommandHandler::handleSetSegmentRange(const uint8_t *payload, size_t len)
-{
-    Serial.println("CMD: Set Segment Range");
-    if (len < 5)
-    {
-        Serial.println("ERR: Payload too short for Set Seg Range");
-        return;
-    }
-    if (!strip)
-    {
-        Serial.println("ERR: Strip not initialized!");
-        return;
-    }
-    uint8_t segId = payload[0];
-    uint16_t start = (payload[1] << 8) | payload[2];
-    uint16_t end = (payload[3] << 8) | payload[4];
-    if (segId < strip->getSegments().size())
-    {
-        strip->getSegments()[segId]->setRange(start, end);
-        Serial.print("OK: Segment ");
-        Serial.print(segId);
-        Serial.print(" range set to ");
-        Serial.print(start);
-        Serial.print("-");
-        Serial.println(end);
-    }
-    else
-    {
-        Serial.print("ERR: Invalid segment ID: ");
-        Serial.println(segId);
-    }
-}
-
-void BinaryCommandHandler::handleSetLedCount(const uint8_t *payload, size_t len)
-{
-    Serial.println("CMD: Set LED Count");
-    if (len < 2)
-    {
-        Serial.println("ERR: Payload too short for Set LED Count");
-        return;
-    }
-    uint16_t count = (payload[0] << 8) | payload[1];
-    Serial.print("OK: Setting LED count to ");
-    Serial.println(count);
-    setLedCount(count);
-}
-
-void BinaryCommandHandler::handleGetStatus()
-{
-    Serial.println("CMD: Get Status");
-    StaticJsonDocument<1024> doc;
-    doc["led_count"] = LED_COUNT;
-    JsonArray effects = doc.createNestedArray("available_effects");
-    for (int i = 0; i < EFFECT_COUNT; ++i)
-    {
-        effects.add(EFFECT_NAMES[i]);
-    }
-    JsonArray segments = doc.createNestedArray("segments");
-    if (strip)
-    {
-        for (auto *s : strip->getSegments())
-        {
-            JsonObject segObj = segments.createNestedObject();
-            segObj["id"] = s->getId();
-            segObj["name"] = s->getName();
-            segObj["startLed"] = s->startIndex();
-            segObj["endLed"] = s->endIndex();
-            segObj["brightness"] = s->getBrightness();
-            segObj["effect"] = s->activeEffect ? s->activeEffect->getName() : "None";
-        }
-    }
-    char responseBuffer[1024];
-    size_t length = serializeJson(doc, responseBuffer, sizeof(responseBuffer));
-    Serial.print("-> Sending Status JSON (");
-    Serial.print(length);
-    Serial.println(" bytes)");
-    BLEManager::getInstance().sendMessage((const uint8_t *)responseBuffer, length);
-}
+// Removed handleSetColor, handleSetEffect, handleSetBrightness, handleSetSegmentBrightness,
+// handleSelectSegment, handleClearSegments, handleSetSegmentRange, handleSetLedCount,
+// handleSetEffectParameter, handleGetStatus, handleGetEffectInfo.
+// These are no longer in the provided BinaryCommandHandler.h enum.
 
 void BinaryCommandHandler::handleGetLedCount()
 {
@@ -897,155 +628,8 @@ String BinaryCommandHandler::buildEffectInfoJson(uint8_t effectIndex)
     return response;
 }
 
-void BinaryCommandHandler::handleGetEffectInfo(const uint8_t *payload, size_t len, bool viaSerial)
-{
-    Serial.println("CMD: Get Effect Info");
-    if (len < 2)
-    {
-        Serial.println("ERR: Missing segment ID or effect ID for GET_EFFECT_INFO");
-        return;
-    }
-    uint8_t effectIndex = payload[1];
-    String response = buildEffectInfoJson(effectIndex);
-    Serial.print("-> Sending Effect Info for index '");
-    Serial.print(effectIndex);
-    Serial.print("' (");
-    Serial.print(response.length());
-    Serial.println(" bytes)");
-    if (viaSerial)
-    {
-        Serial.println(response);
-    }
-    else
-    {
-        BLEManager::getInstance().sendMessage(response);
-    }
-}
-
-void BinaryCommandHandler::handleSetEffectParameter(const uint8_t *payload, size_t len)
-{
-    Serial.println("CMD: Set Effect Parameter");
-    if (len < 4)
-    {
-        Serial.println("ERR: Payload too short for Set Effect Parameter");
-        BLEManager::getInstance().sendMessage("{\"error\":\"Payload too short\"}");
-        return;
-    }
-    if (!strip)
-    {
-        Serial.println("ERR: Strip not initialized!");
-        BLEManager::getInstance().sendMessage("{\"error\":\"Strip not initialized\"}");
-        return;
-    }
-    uint8_t segId = payload[0];
-    uint8_t paramTypeRaw = payload[1];
-    uint8_t nameLen = payload[2];
-    if (segId >= strip->getSegments().size())
-    {
-        Serial.print("ERR: Invalid segment ID: ");
-        Serial.println(segId);
-        BLEManager::getInstance().sendMessage("{\"error\":\"Invalid segment ID\"}");
-        return;
-    }
-    // Use fixed-size buffer for paramName to avoid VLA warning
-    char paramName[64]; // Assuming max param name length is less than 63 characters
-    if (nameLen >= sizeof(paramName))
-    {
-        Serial.println("ERR: Parameter name too long.");
-        BLEManager::getInstance().sendMessage("{\"error\":\"PARAM_NAME_TOO_LONG\"}");
-        return;
-    }
-    memcpy(paramName, payload + 3, nameLen);
-    paramName[nameLen] = '\0';
-
-    PixelStrip::Segment *seg = strip->getSegments()[segId];
-    if (!seg->activeEffect)
-    {
-        Serial.println("ERR: No active effect on segment to set parameter.");
-        BLEManager::getInstance().sendMessage("{\"error\":\"No active effect\"}");
-        return;
-    }
-    const uint8_t *valueBytes = payload + 3 + nameLen;
-    size_t valueLen = len - (3 + nameLen);
-    ParamType paramType = (ParamType)paramTypeRaw;
-    switch (paramType)
-    {
-    case ParamType::INTEGER:
-    {
-        if (valueLen < 4)
-        {
-            Serial.println("ERR: Integer value too short.");
-            BLEManager::getInstance().sendMessage("{\"error\":\"Invalid integer value\"}");
-            return;
-        }
-        int32_t intValue = (int32_t)valueBytes[0] << 24 | (int32_t)valueBytes[1] << 16 | (int32_t)valueBytes[2] << 8 | (int32_t)valueBytes[3];
-        seg->activeEffect->setParameter(paramName, (int)intValue);
-        Serial.print("OK: Set param '");
-        Serial.print(paramName);
-        Serial.print("' to int ");
-        Serial.println(intValue);
-        break;
-    }
-    case ParamType::FLOAT:
-    {
-        if (valueLen < 4)
-        {
-            Serial.println("ERR: Float value too short.");
-            BLEManager::getInstance().sendMessage("{\"error\":\"Invalid float value\"}");
-            return;
-        }
-        float floatValue;
-        memcpy(&floatValue, valueBytes, 4);
-        seg->activeEffect->setParameter(paramName, floatValue);
-        Serial.print("OK: Set param '");
-        Serial.print(paramName);
-        Serial.print("' to float ");
-        Serial.println(floatValue);
-        break;
-    }
-    case ParamType::COLOR:
-    {
-        if (valueLen < 4)
-        {
-            Serial.println("ERR: Color value too short.");
-            BLEManager::getInstance().sendMessage("{\"error\":\"Invalid color value\"}");
-            return;
-        }
-        uint32_t colorValue = (uint32_t)valueBytes[1] << 16 | (uint32_t)valueBytes[2] << 8 | (uint32_t)valueBytes[3];
-        seg->activeEffect->setParameter(paramName, colorValue);
-        Serial.print("OK: Set param '");
-        Serial.print(paramName);
-        Serial.print("' to color 0x");
-        Serial.println(colorValue, HEX);
-        break;
-    }
-    case ParamType::BOOLEAN:
-    {
-        if (valueLen < 1)
-        {
-            Serial.println("ERR: Bool value too short.");
-            BLEManager::getInstance().sendMessage("{\"error\":\"Invalid boolean value\"}");
-            return;
-        }
-        bool boolValue = (valueBytes[0] != 0);
-        seg->activeEffect->setParameter(paramName, boolValue);
-        Serial.print("OK: Set param '");
-        Serial.print(paramName);
-        Serial.print("' to bool ");
-        Serial.println(boolValue ? "true" : "false");
-        break;
-    }
-    default:
-        Serial.print("ERR: Unknown ParamType: ");
-        Serial.println((int)paramTypeRaw);
-        BLEManager::getInstance().sendMessage("{\"error\":\"Unknown param type\"}");
-        return;
-    }
-}
-
-// The original handleGetAllSegmentConfigs is modified above and the previous content is removed.
-// The new buildSegmentInfoJson is also added above.
-
+// processSingleSegmentJson is kept because it's a public method in the provided header
+// and is called within the batch segment configuration flow.
 void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
 {
     StaticJsonDocument<512> doc;
@@ -1147,3 +731,13 @@ void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
     }
     strip->show();
 }
+
+// Removed sendNack as there are no NACK commands in the new enum.
+/*
+void BinaryCommandHandler::sendNack(BleCommand nackCode) {
+    uint8_t nack_payload[] = {(uint8_t)nackCode};
+    BLEManager::getInstance().sendMessage(nack_payload, 1);
+    Serial.print("-> Sent NACK: 0x");
+    Serial.println(nackCode, HEX);
+}
+*/
