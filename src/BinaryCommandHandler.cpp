@@ -130,6 +130,12 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
 
     // Process new commands
     BleCommand cmd = (BleCommand)data[0];
+    // Add a check for the new heartbeat command
+    if (cmd == CMD_HEARTBEAT) { // Assuming CMD_HEARTBEAT is a new enum value
+        lastHeartbeatReceived = millis();
+        return; // No other processing needed
+    }
+
     const uint8_t *payload = data + 1;
     size_t payloadLen = len - 1;
     bool sendGenericAck = true;

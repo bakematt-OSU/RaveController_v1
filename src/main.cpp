@@ -29,6 +29,9 @@ uint16_t LED_COUNT = 585; // Default value
 const char *STATE_FILE = "/littlefs/state.json";
 LittleFS_MBED myFS;
 
+unsigned long lastHeartbeatReceived = 0;
+#define HEARTBEAT_TIMEOUT 5000
+
 // MODIFIED: Use the new constant from Config.h to define the array
 uint8_t effectScratchpad[EFFECT_SCRATCHPAD_SIZE];
 
@@ -83,11 +86,11 @@ void setup()
                 JsonArray segments = doc["segments"];
                 for (JsonObject segData : segments)
                 {
-                    const char* name = segData["name"] | "";
+                    const char *name = segData["name"] | "";
                     uint16_t start = segData["startLed"];
                     uint16_t end = segData["endLed"];
                     uint8_t brightness = segData["brightness"] | 255;
-                    const char* effectNameStr = segData["effect"] | "SolidColor";
+                    const char *effectNameStr = segData["effect"] | "SolidColor";
 
                     PixelStrip::Segment *targetSeg;
                     if (strcmp(name, "all") == 0)
@@ -102,7 +105,8 @@ void setup()
                     }
 
                     targetSeg->setBrightness(brightness);
-                    if (targetSeg->activeEffect) delete targetSeg->activeEffect;
+                    if (targetSeg->activeEffect)
+                        delete targetSeg->activeEffect;
                     targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
 
                     if (targetSeg->activeEffect)
@@ -167,6 +171,13 @@ void loop()
     bleManager.update();
     binaryCommandHandler.update(); // Added: Call the update method for timeout checks
 
+    // --- New Heartbeat Check ---
+    if (bleManager.isConnected() && (millis() - lastHeartbeatReceived > HEARTBEAT_TIMEOUT))
+    {
+        Serial.println("ERR: Heartbeat timeout! Connection lost. Forcing reset.");
+        bleManager.reset(); // Force a reset to clear the stuck connection
+    }
+
     if (currentMillis - lastBleCheck > 500)
     {
         lastBleCheck = currentMillis;
@@ -205,7 +216,7 @@ void loop()
 void processSerial()
 {
     if (binaryCommandHandler.isSerialBatchActive() &&
-       (binaryCommandHandler.getIncomingBatchState() != IncomingBatchState::IDLE))
+        (binaryCommandHandler.getIncomingBatchState() != IncomingBatchState::IDLE))
     {
         if (Serial.available() > 0)
         {
@@ -225,23 +236,30 @@ void processSerial()
             static char command_buffer[256];
             int bytes_read = Serial.readBytesUntil('\n', command_buffer, sizeof(command_buffer) - 1);
 
-            if (bytes_read > 0) {
+            if (bytes_read > 0)
+            {
                 command_buffer[bytes_read] = '\0';
 
-                char* command = command_buffer;
-                while (isspace(*command)) {
+                char *command = command_buffer;
+                while (isspace(*command))
+                {
                     command++;
                 }
 
-                for (int i = strlen(command) - 1; i >= 0; i--) {
-                    if (isspace(command[i])) {
+                for (int i = strlen(command) - 1; i >= 0; i--)
+                {
+                    if (isspace(command[i]))
+                    {
                         command[i] = '\0';
-                    } else {
+                    }
+                    else
+                    {
                         break;
                     }
                 }
 
-                if (strlen(command) > 0) {
+                if (strlen(command) > 0)
+                {
                     serialCommandHandler.handleCommand(command);
                 }
             }

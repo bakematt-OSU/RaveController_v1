@@ -39,6 +39,7 @@ enum BleCommand : uint8_t
     CMD_ACK_RESTARTING = 0xA4,          ///< Acknowledgment that the device is restarting.
 
     CMD_READY = 0xD0,                   ///< Indicates the device is ready.
+    CMD_HEARTBEAT = 0xD1,               ///< NEW: A heartbeat ping from the app.
 
     CMD_NACK_UNKNOWN_CMD = 0xE0,        ///< Negative acknowledgment: Unknown command.
     CMD_NACK_INVALID_PAYLOAD = 0xE1,    ///< Negative acknowledgment: Invalid command payload.

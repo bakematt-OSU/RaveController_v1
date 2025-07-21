@@ -33,4 +33,7 @@ extern volatile bool triggerRipple;
 // --- New global flag for serial output management ---
 extern bool reAdvertisingMessagePrinted; //
 
+// --- NEW: Global for heartbeat tracking ---
+extern unsigned long lastHeartbeatReceived;
+
 #endif // GLOBALS_H
