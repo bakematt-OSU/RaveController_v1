@@ -29,11 +29,7 @@ uint16_t LED_COUNT = 585; // Default value
 const char *STATE_FILE = "/littlefs/state.json";
 LittleFS_MBED myFS;
 
-// --- Heartbeat variables ---
 unsigned long lastHeartbeatReceived = 0;
-bool isHeartbeatActive = false; // Define and initialize the new flag
-#define HEARTBEAT_TIMEOUT 5000
-
 
 // MODIFIED: Use the new constant from Config.h to define the array
 uint8_t effectScratchpad[EFFECT_SCRATCHPAD_SIZE];
@@ -43,6 +39,7 @@ volatile int16_t sampleBuffer[SAMPLES];
 volatile int samplesRead = 0;
 float accelX, accelY, accelZ;
 volatile bool triggerRipple = false;
+
 
 bool reAdvertisingMessagePrinted = false;
 
@@ -89,11 +86,11 @@ void setup()
                 JsonArray segments = doc["segments"];
                 for (JsonObject segData : segments)
                 {
-                    const char *name = segData["name"] | "";
+                    const char* name = segData["name"] | "";
                     uint16_t start = segData["startLed"];
                     uint16_t end = segData["endLed"];
                     uint8_t brightness = segData["brightness"] | 255;
-                    const char *effectNameStr = segData["effect"] | "SolidColor";
+                    const char* effectNameStr = segData["effect"] | "SolidColor";
 
                     PixelStrip::Segment *targetSeg;
                     if (strcmp(name, "all") == 0)
@@ -108,8 +105,7 @@ void setup()
                     }
 
                     targetSeg->setBrightness(brightness);
-                    if (targetSeg->activeEffect)
-                        delete targetSeg->activeEffect;
+                    if (targetSeg->activeEffect) delete targetSeg->activeEffect;
                     targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
 
                     if (targetSeg->activeEffect)
@@ -172,33 +168,13 @@ void loop()
     unsigned long currentMillis = millis();
 
     bleManager.update();
-    binaryCommandHandler.update();
+    binaryCommandHandler.update(); // Added: Call the update method for timeout checks
 
-    // This timeout check is now correct because the variables below are managed properly.
-    if (bleManager.isConnected() && isHeartbeatActive && (currentMillis - lastHeartbeatReceived > HEARTBEAT_TIMEOUT))
-    {
-        Serial.println("ERR: Heartbeat timeout! Connection lost. Forcing reset.");
-        isHeartbeatActive = false; // Reset the flag
-        bleManager.reset();
-    }
-
-    // This polling block is where the critical change is needed.
     if (currentMillis - lastBleCheck > 500)
     {
         lastBleCheck = currentMillis;
         if (!bleManager.isConnected())
         {
-            // --- *** THE FIX IS HERE *** ---
-            // When not connected, we MUST reset BOTH heartbeat state variables.
-            // This guarantees that the next device to connect starts with a
-            // clean slate and a full grace period.
-
-            isHeartbeatActive = false;
-            lastHeartbeatReceived = currentMillis; // Reset timer to now
-
-            // --- *** END OF FIX *** ---
-
-
             BLE.stopAdvertise();
             BLE.advertise();
 
@@ -227,11 +203,12 @@ void loop()
         strip->show();
     }
 }
+
 // --- Serial Command Processing ---
 void processSerial()
 {
     if (binaryCommandHandler.isSerialBatchActive() &&
-        (binaryCommandHandler.getIncomingBatchState() != IncomingBatchState::IDLE))
+       (binaryCommandHandler.getIncomingBatchState() != IncomingBatchState::IDLE))
     {
         if (Serial.available() > 0)
         {
@@ -251,30 +228,23 @@ void processSerial()
             static char command_buffer[256];
             int bytes_read = Serial.readBytesUntil('\n', command_buffer, sizeof(command_buffer) - 1);
 
-            if (bytes_read > 0)
-            {
+            if (bytes_read > 0) {
                 command_buffer[bytes_read] = '\0';
 
-                char *command = command_buffer;
-                while (isspace(*command))
-                {
+                char* command = command_buffer;
+                while (isspace(*command)) {
                     command++;
                 }
 
-                for (int i = strlen(command) - 1; i >= 0; i--)
-                {
-                    if (isspace(command[i]))
-                    {
+                for (int i = strlen(command) - 1; i >= 0; i--) {
+                    if (isspace(command[i])) {
                         command[i] = '\0';
-                    }
-                    else
-                    {
+                    } else {
                         break;
                     }
                 }
 
-                if (strlen(command) > 0)
-                {
+                if (strlen(command) > 0) {
                     serialCommandHandler.handleCommand(command);
                 }
             }

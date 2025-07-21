@@ -7,8 +7,6 @@
 
 extern PixelStrip *strip;
 extern uint16_t LED_COUNT;
-extern bool isHeartbeatActive; // Make the global flag visible here
-
 
 // Constructor
 BinaryCommandHandler::BinaryCommandHandler()
@@ -132,13 +130,6 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
 
     // Process new commands
     BleCommand cmd = (BleCommand)data[0];
-    // Add a check for the new heartbeat command
-    if (cmd == CMD_HEARTBEAT) { // Assuming CMD_HEARTBEAT is a new enum value
-        lastHeartbeatReceived = millis();
-        return; // No other processing needed
-    }
-
-
     const uint8_t *payload = data + 1;
     size_t payloadLen = len - 1;
     bool sendGenericAck = true;
@@ -158,21 +149,21 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
     // case CMD_SET_SEG_BRIGHT:
     //     handleSetSegmentBrightness(payload, payloadLen);
     //     break;
-    case CMD_SELECT_SEGMENT:
-        handleSelectSegment(payload, payloadLen);
-        break;
+    // case CMD_SELECT_SEGMENT:
+    //     handleSelectSegment(payload, payloadLen);
+    //     break;
     case CMD_CLEAR_SEGMENTS:
         handleClearSegments();
         break;
     // case CMD_SET_SEG_RANGE:
     //     handleSetSegmentRange(payload, payloadLen);
     //     break;
-    case CMD_SET_LED_COUNT:
-        handleSetLedCount(payload, payloadLen);
-        break;
-    case CMD_SET_EFFECT_PARAMETER:
-        handleSetEffectParameter(payload, payloadLen);
-        break;
+    // case CMD_SET_LED_COUNT:
+    //     handleSetLedCount(payload, payloadLen);
+    //     break;
+    // case CMD_SET_EFFECT_PARAMETER:
+    //     handleSetEffectParameter(payload, payloadLen);
+    //     break;
     case CMD_SAVE_CONFIG:
         handleSaveConfig();
         sendGenericAck = false;
@@ -208,20 +199,20 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
         handleGetAllEffectsCommand(false);
         sendGenericAck = false;
         break;
-    case CMD_SET_SINGLE_SEGMENT_JSON:
-    {
-        // Use the member buffer for single segment JSON to avoid VLA
-        if (payloadLen >= sizeof(_incomingJsonBuffer))
-        {
-            Serial.println("ERR: Single segment JSON payload too large!");
-            BLEManager::getInstance().sendMessage("{\"error\":\"SINGLE_SEG_JSON_TOO_LARGE\"}");
-            break; // Exit case
-        }
-        memcpy(_incomingJsonBuffer, payload, payloadLen);
-        _incomingJsonBuffer[payloadLen] = '\0'; // Ensure null termination
-        processSingleSegmentJson(_incomingJsonBuffer);
-        break;
-    }
+    // case CMD_SET_SINGLE_SEGMENT_JSON:
+    // {
+    //     // Use the member buffer for single segment JSON to avoid VLA
+    //     if (payloadLen >= sizeof(_incomingJsonBuffer))
+    //     {
+    //         Serial.println("ERR: Single segment JSON payload too large!");
+    //         BLEManager::getInstance().sendMessage("{\"error\":\"SINGLE_SEG_JSON_TOO_LARGE\"}");
+    //         break; // Exit case
+    //     }
+    //     memcpy(_incomingJsonBuffer, payload, payloadLen);
+    //     _incomingJsonBuffer[payloadLen] = '\0'; // Ensure null termination
+    //     processSingleSegmentJson(_incomingJsonBuffer);
+    //     break;
+    // }
     case CMD_ACK_GENERIC: // Use CMD_ACK_GENERIC
         handleAck();
         sendGenericAck = false;
@@ -1020,15 +1011,7 @@ void BinaryCommandHandler::handleSetEffectParameter(const uint8_t *payload, size
             BLEManager::getInstance().sendMessage("{\"error\":\"Invalid color value\"}");
             return;
         }
-        // --- FIX: Correctly assemble the 4-byte color value ---
-        uint32_t colorValue = ((uint32_t)valueBytes[0] << 24) |
-                              ((uint32_t)valueBytes[1] << 16) |
-                              ((uint32_t)valueBytes[2] << 8)  |
-                              ((uint32_t)valueBytes[3]);
-        // Since the app sends a 24-bit color, we mask out the alpha channel
-        // to ensure it's just the RGB value.
-        colorValue &= 0x00FFFFFF;
-
+        uint32_t colorValue = (uint32_t)valueBytes[1] << 16 | (uint32_t)valueBytes[2] << 8 | (uint32_t)valueBytes[3];
         seg->activeEffect->setParameter(paramName, colorValue);
         Serial.print("OK: Set param '");
         Serial.print(paramName);
@@ -1079,21 +1062,16 @@ void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
     uint16_t end = doc["endLed"] | 0;
     uint8_t brightness = doc["brightness"] | 255;
     const char *effectNameStr = doc["effect"] | "SolidColor";
-    
+    uint8_t segmentId = doc["id"] | 0;
     PixelStrip::Segment *targetSeg = nullptr;
 
-    // --- FIX STARTS HERE ---
-    // Check if we are in the middle of a batch update.
-    if (_incomingBatchState == IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON) {
-        // In a batch update, we have already cleared old segments.
-        // We must ALWAYS create a new one and ignore any incoming ID.
-        strip->addSection(start, end, name);
-        targetSeg = strip->getSegments().back();
-
-    } else {
-        // This is a single segment update (CMD_SET_SINGLE_SEGMENT_JSON),
-        // so we use the find-or-create logic.
-        uint8_t segmentId = doc["id"] | 0; // The problematic ID parsing
+    if (strcmp(name, "all") == 0)
+    {
+        targetSeg = strip->getSegments()[0];
+        targetSeg->setRange(start, end);
+    }
+    else
+    {
         for (auto *s : strip->getSegments())
         {
             if (s->getId() == segmentId)
@@ -1106,6 +1084,10 @@ void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
         {
             strip->addSection(start, end, name);
             targetSeg = strip->getSegments().back();
+        }
+        else
+        {
+            targetSeg->setRange(start, end);
         }
     }
 
