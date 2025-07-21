@@ -186,25 +186,25 @@ void loop()
     bleManager.update();
     binaryCommandHandler.update(); // Added: Call the update method for timeout checks
 
-    if (currentMillis - lastBleCheck > 500)
-    {
-        lastBleCheck = currentMillis;
-        if (!bleManager.isConnected())
-        {
-            BLE.stopAdvertise();
-            BLE.advertise();
+    // if (currentMillis - lastBleCheck > 500)
+    // {
+    //     lastBleCheck = currentMillis;
+    //     if (!bleManager.isConnected())
+    //     {
+    //         BLE.stopAdvertise();
+    //         BLE.advertise();
 
-            if (!reAdvertisingMessagePrinted)
-            {
-                Serial.println("BLE Polling: Not connected. Attempting to re-advertise.");
-                reAdvertisingMessagePrinted = true;
-            }
-        }
-        else
-        {
-            reAdvertisingMessagePrinted = false;
-        }
-    }
+    //         if (!reAdvertisingMessagePrinted)
+    //         {
+    //             Serial.println("BLE Polling: Not connected. Attempting to re-advertise.");
+    //             reAdvertisingMessagePrinted = true;
+    //         }
+    //     }
+    //     else
+    //     {
+    //         reAdvertisingMessagePrinted = false;
+    //     }
+    // }
 
     processSerial();
     processAudio();
