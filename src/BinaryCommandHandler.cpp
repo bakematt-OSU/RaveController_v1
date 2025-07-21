@@ -163,6 +163,10 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
         Serial.println("CMD: Device Ready received.");
         sendGenericAck = false; // No ACK needed for a READY signal
         break;
+    case CMD_CLEAR_SEGMENTS: // <-- ADD THIS CASE BLOCK
+        handleClearSegments();
+        sendGenericAck = false;
+        break;
     default:
         Serial.print("ERR: Unknown binary command: 0x");
         Serial.println(cmd, HEX);
@@ -345,7 +349,7 @@ void BinaryCommandHandler::update()
         if (!_ackReceived && (millis() - _ackTimeoutStart > ACK_WAIT_TIMEOUT_MS))
         {
             // --- IMPROVED DEBUG MESSAGE FOR EFFECTS ---
-            const char* failedEffectName = getEffectNameFromId(_effectsSentInBatch);
+            const char *failedEffectName = getEffectNameFromId(_effectsSentInBatch);
             Serial.print("WARN: ACK timeout. Expected ACK for effect #");
             Serial.print(_effectsSentInBatch);
             Serial.print(" ('");
@@ -365,8 +369,9 @@ void BinaryCommandHandler::update()
         if (!_ackReceived && (millis() - _ackTimeoutStart > ACK_WAIT_TIMEOUT_MS))
         {
             // --- IMPROVED DEBUG MESSAGE FOR SEGMENTS ---
-            const char* failedSegmentName = "Unknown";
-            if (strip && _segmentsSentInBatch_Out < strip->getSegments().size()) {
+            const char *failedSegmentName = "Unknown";
+            if (strip && _segmentsSentInBatch_Out < strip->getSegments().size())
+            {
                 failedSegmentName = strip->getSegments()[_segmentsSentInBatch_Out]->getName();
             }
             Serial.print("WARN: ACK timeout. Expected ACK for segment #");
@@ -704,4 +709,20 @@ void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
         Serial.println("ERR: Failed to find or create segment.");
     }
     // strip->show() is called after all segments are received in processIncomingAllSegmentsData
+}
+// Add the new handler function's implementation at the end of the file
+void BinaryCommandHandler::handleClearSegments()
+{
+    Serial.println("CMD: Clear Segments");
+    if (strip)
+    {
+        strip->clearUserSegments();
+        Serial.println("-> OK: Segments cleared.");
+        BLEManager::getInstance().sendMessage("{\"status\":\"OK\", \"message\":\"Segments cleared\"}");
+    }
+    else
+    {
+        Serial.println("-> ERR: Strip not initialized.");
+        BLEManager::getInstance().sendMessage("{\"error\":\"Strip not initialized\"}");
+    }
 }

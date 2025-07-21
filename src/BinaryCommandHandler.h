@@ -17,6 +17,7 @@ enum BleCommand : uint8_t
     CMD_SET_ALL_SEGMENT_CONFIGS = 0x0F, ///< Initiates receiving multiple segment configurations in a batch.
     CMD_GET_ALL_EFFECTS = 0x10,         ///< Requests detailed information for all available effects.
     CMD_SAVE_CONFIG = 0x12,             ///< Saves the current configuration to persistent storage.
+    CMD_CLEAR_SEGMENTS = 0x06,          ///< Clears all segment configurations.
 
     CMD_ACK_GENERIC = 0xA0,             ///< Generic acknowledgment for a received command.
 
@@ -67,6 +68,7 @@ public:
      * @param viaSerial If true, sends output to Serial; otherwise, sends via BLE.
      */
     void handleGetAllSegmentConfigs(bool viaSerial);
+    
 
     /**
      * @brief Initiates the process of receiving all segment configurations in a batch.
@@ -164,6 +166,8 @@ private:
      * @brief Handles the reception of an ACK.
      */
     void handleAck();
+
+    void handleClearSegments();
 };
 
 #endif // BINARY_COMMAND_HANDLER_H
