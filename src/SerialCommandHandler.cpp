@@ -38,7 +38,7 @@ void SerialCommandHandler::handleCommand(char *command)
         handleGetSavedConfig();
     else if (strcmp(cmd, "getcurrconfig") == 0)
         handleGetCurrConfig();
-    else if (strcmp(cmd, "getsaveconfig") == 0)
+    else if (strcmp(cmd, "saveconfig") == 0)
         handleSaveConfig();
     else if (strcmp(cmd, "setledcount") == 0)
         handleSetLedCount(args);
