@@ -1020,7 +1020,15 @@ void BinaryCommandHandler::handleSetEffectParameter(const uint8_t *payload, size
             BLEManager::getInstance().sendMessage("{\"error\":\"Invalid color value\"}");
             return;
         }
-        uint32_t colorValue = (uint32_t)valueBytes[1] << 16 | (uint32_t)valueBytes[2] << 8 | (uint32_t)valueBytes[3];
+        // --- FIX: Correctly assemble the 4-byte color value ---
+        uint32_t colorValue = ((uint32_t)valueBytes[0] << 24) |
+                              ((uint32_t)valueBytes[1] << 16) |
+                              ((uint32_t)valueBytes[2] << 8)  |
+                              ((uint32_t)valueBytes[3]);
+        // Since the app sends a 24-bit color, we mask out the alpha channel
+        // to ensure it's just the RGB value.
+        colorValue &= 0x00FFFFFF;
+
         seg->activeEffect->setParameter(paramName, colorValue);
         Serial.print("OK: Set param '");
         Serial.print(paramName);
