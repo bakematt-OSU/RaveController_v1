@@ -145,15 +145,15 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
         break;
     case CMD_GET_ALL_SEGMENT_CONFIGS:
         handleGetAllSegmentConfigs(false); // False for BLE
-        sendGenericAck = false; // Handled by getAllSegmentConfigs
+        sendGenericAck = false;            // Handled by getAllSegmentConfigs
         break;
     case CMD_SET_ALL_SEGMENT_CONFIGS:
         handleSetAllSegmentConfigsCommand(false); // False for BLE
-        sendGenericAck = false; // Handled by setAllSegmentConfigsCommand
+        sendGenericAck = false;                   // Handled by setAllSegmentConfigsCommand
         break;
     case CMD_GET_ALL_EFFECTS:
         handleGetAllEffectsCommand(false); // False for BLE
-        sendGenericAck = false; // Handled by getAllEffectsCommand
+        sendGenericAck = false;            // Handled by getAllEffectsCommand
         break;
     case CMD_ACK_GENERIC: // Use CMD_ACK_GENERIC
         handleAck();
@@ -431,9 +431,9 @@ void BinaryCommandHandler::handleGetAllSegmentConfigs(bool viaSerial)
 
     // Send count of segments first
     uint8_t count_payload[3];
-    count_payload[0] = (uint8_t)CMD_GET_ALL_SEGMENT_CONFIGS; // Command for batch segment config
+    count_payload[0] = (uint8_t)CMD_GET_ALL_SEGMENT_CONFIGS;      // Command for batch segment config
     count_payload[1] = (_expectedSegmentsToSend_Out >> 8) & 0xFF; // MSB
-    count_payload[2] = _expectedSegmentsToSend_Out & 0xFF;       // LSB
+    count_payload[2] = _expectedSegmentsToSend_Out & 0xFF;        // LSB
 
     if (viaSerial)
     {
@@ -494,7 +494,7 @@ String BinaryCommandHandler::buildEffectInfoJson(uint8_t effectIndex)
     }
     // Create a dummy segment to instantiate the effect and get its parameters
     // This is a temporary object and will be deleted.
-    PixelStrip::Segment *dummySegment = new PixelStrip::Segment(*strip, 0, 0, "dummy", 255); 
+    PixelStrip::Segment *dummySegment = new PixelStrip::Segment(*strip, 0, 0, "dummy", 255);
     BaseEffect *tempEffect = createEffectByName(effectName, dummySegment);
     if (!tempEffect)
     {
@@ -533,7 +533,7 @@ String BinaryCommandHandler::buildEffectInfoJson(uint8_t effectIndex)
     }
     String response;
     serializeJson(doc, response);
-    delete tempEffect;    // Clean up temporary effect
+    delete tempEffect;   // Clean up temporary effect
     delete dummySegment; // Clean up dummy segment
     return response;
 }
@@ -561,9 +561,12 @@ void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
 
     // Find existing segment by ID or create a new one
     bool segmentFound = false;
-    if (strip) {
-        for (auto *s : strip->getSegments()) {
-            if (s->getId() == segmentId) {
+    if (strip)
+    {
+        for (auto *s : strip->getSegments())
+        {
+            if (s->getId() == segmentId)
+            {
                 targetSeg = s;
                 segmentFound = true;
                 break;
@@ -571,14 +574,18 @@ void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
         }
     }
 
-    if (!segmentFound) {
+    if (!segmentFound)
+    {
         // If segment not found by ID, add a new one
-        if (strip) {
+        if (strip)
+        {
             strip->addSection(start, end, name);
             targetSeg = strip->getSegments().back();
             targetSeg->setRange(start, end); // Ensure range is set for new segment
         }
-    } else {
+    }
+    else
+    {
         // If segment found, update its range
         targetSeg->setRange(start, end);
     }
@@ -600,27 +607,68 @@ void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
         }
 
         // This block now correctly parses parameters from the top level of the JSON object.
+        // if (targetSeg->activeEffect)
+        // {
+        //     JsonObject docObj = doc.as<JsonObject>();
+        //     for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i)
+        //     {
+        //         EffectParameter *p = targetSeg->activeEffect->getParameter(i);
+        //         if (docObj.containsKey(p->name))
+        //         {
+        //             switch (p->type)
+        //             {
+        //             case ParamType::INTEGER:
+        //                 targetSeg->activeEffect->setParameter(p->name, docObj[p->name].as<int>());
+        //                 break;
+        //             case ParamType::FLOAT:
+        //                 targetSeg->activeEffect->setParameter(p->name, docObj[p->name].as<float>());
+        //                 break;
+        //             case ParamType::COLOR:
+        //                 targetSeg->activeEffect->setParameter(p->name, docObj[p->name].as<uint32_t>());
+        //                 break;
+        //             case ParamType::BOOLEAN:
+        //                 targetSeg->activeEffect->setParameter(p->name, docObj[p->name].as<bool>());
+        //                 break;
+        //             }
+        //         }
+        //     }
         if (targetSeg->activeEffect)
         {
             JsonObject docObj = doc.as<JsonObject>();
+            JsonObject paramsSource = docObj; // Default to top-level object
+
+            // Check if there is a nested "parameters" object and use it as the source
+            if (docObj.containsKey("parameters") && docObj["parameters"].is<JsonObject>())
+            {
+                paramsSource = docObj["parameters"].as<JsonObject>();
+            }
+
             for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i)
             {
                 EffectParameter *p = targetSeg->activeEffect->getParameter(i);
-                if (docObj.containsKey(p->name))
+                if (paramsSource.containsKey(p->name))
                 {
                     switch (p->type)
                     {
                     case ParamType::INTEGER:
-                        targetSeg->activeEffect->setParameter(p->name, docObj[p->name].as<int>());
+                        targetSeg->activeEffect->setParameter(p->name, paramsSource[p->name].as<int>());
                         break;
                     case ParamType::FLOAT:
-                        targetSeg->activeEffect->setParameter(p->name, docObj[p->name].as<float>());
+                        targetSeg->activeEffect->setParameter(p->name, paramsSource[p->name].as<float>());
                         break;
                     case ParamType::COLOR:
-                        targetSeg->activeEffect->setParameter(p->name, docObj[p->name].as<uint32_t>());
+                        // Handle color which may be sent as a double from the app
+                        if (paramsSource[p->name].is<double>())
+                        {
+                            targetSeg->activeEffect->setParameter(p->name, (uint32_t)paramsSource[p->name].as<double>());
+                        }
+                        else
+                        {
+                            targetSeg->activeEffect->setParameter(p->name, paramsSource[p->name].as<uint32_t>());
+                        }
                         break;
                     case ParamType::BOOLEAN:
-                        targetSeg->activeEffect->setParameter(p->name, docObj[p->name].as<bool>());
+                        targetSeg->activeEffect->setParameter(p->name, paramsSource[p->name].as<bool>());
                         break;
                     }
                 }

@@ -62,9 +62,9 @@ void CommandHandler::handleCommand(const String &command)
     {
         handleGetStatus();
     }
-    else if (cmd.equalsIgnoreCase("getconfig"))
+    else if (cmd.equalsIgnoreCase("getsavedconfig"))
     {
-        handleGetConfig();
+        handleGetSavedConfig();
     }
     else if (cmd.equalsIgnoreCase("saveconfig"))
     {
@@ -169,7 +169,7 @@ void CommandHandler::handleGetStatus()
     bleManager->sendMessage(response);
 }
 
-void CommandHandler::handleGetConfig()
+void CommandHandler::handleGetSavedConfig()
 {
     // MODIFIED: Use the new loadConfig with a char buffer
     char configBuffer[1024];

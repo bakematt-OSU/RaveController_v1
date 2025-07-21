@@ -73,7 +73,9 @@ private:
     /** @brief Handles the 'get_status' command. */
     void handleGetStatus();
     /** @brief Handles the 'get_config' command. */
-    void handleGetConfig();
+    void handleGetCurrConfig();
+    /** @brief Handles the 'get_config' command. */
+    void handleGetSavedConfig();
     /** @brief Handles the 'save_config' command. */
     void handleSaveConfig();
     /** @brief Handles the 'get_led_count' command. */

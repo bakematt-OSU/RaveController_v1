@@ -34,9 +34,11 @@ void SerialCommandHandler::handleCommand(char *command)
         handleListEffects();
     else if (strcmp(cmd, "getstatus") == 0)
         handleGetStatus();
-    else if (strcmp(cmd, "getconfig") == 0)
-        handleGetConfig();
-    else if (strcmp(cmd, "saveconfig") == 0)
+    else if (strcmp(cmd, "getsavedconfig") == 0)
+        handleGetSavedConfig();
+    else if (strcmp(cmd, "getcurrconfig") == 0)
+        handleGetCurrConfig();
+    else if (strcmp(cmd, "getsaveconfig") == 0)
         handleSaveConfig();
     else if (strcmp(cmd, "setledcount") == 0)
         handleSetLedCount(args);
@@ -79,6 +81,59 @@ void SerialCommandHandler::handleCommand(char *command)
 }
 
 // --- Command Implementations using C-Strings ---
+void SerialCommandHandler::handleGetCurrConfig()
+{
+    StaticJsonDocument<2048> doc;
+    doc["led_count"] = LED_COUNT;
+
+    JsonArray segments = doc.createNestedArray("segments");
+    if (strip)
+    {
+        for (auto *s : strip->getSegments())
+        {
+            JsonObject segObj = segments.createNestedObject();
+            segObj["id"] = s->getId();
+            segObj["name"] = s->getName();
+            segObj["startLed"] = s->startIndex();
+            segObj["endLed"] = s->endIndex();
+            segObj["brightness"] = s->getBrightness();
+
+            if (s->activeEffect)
+            {
+                segObj["effect"] = s->activeEffect->getName();
+
+                // Add all parameters for the active effect
+                for (int i = 0; i < s->activeEffect->getParameterCount(); ++i)
+                {
+                    EffectParameter *p = s->activeEffect->getParameter(i);
+                    switch (p->type)
+                    {
+                    case ParamType::INTEGER:
+                        segObj[p->name] = p->value.intValue;
+                        break;
+                    case ParamType::FLOAT:
+                        segObj[p->name] = p->value.floatValue;
+                        break;
+                    case ParamType::COLOR:
+                        segObj[p->name] = p->value.colorValue;
+                        break;
+                    case ParamType::BOOLEAN:
+                        segObj[p->name] = p->value.boolValue;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                segObj["effect"] = "None";
+            }
+        }
+    }
+
+    // Serialize the JSON document directly to the Serial port
+    serializeJsonPretty(doc, Serial);
+    Serial.println(); // Add a newline for clean output
+}
 
 void SerialCommandHandler::handleHelp()
 {
@@ -87,7 +142,8 @@ void SerialCommandHandler::handleHelp()
     Serial.println("\n[General Commands]");
     Serial.println("  help                         - Shows this help message.");
     Serial.println("  getstatus                    - Prints the current status of the device as JSON.");
-    Serial.println("  getconfig                    - Prints the saved configuration from the filesystem.");
+    Serial.println("  getcurrconfig                - Prints the current configuration in memory");
+    Serial.println("  getsavedconfig               - Prints the saved configuration from the filesystem.");
     Serial.println("  saveconfig                   - Saves the current configuration to the filesystem.");
     Serial.println("\n[LED Configuration]");
     Serial.println("  getledcount                  - Prints the current LED count.");
@@ -116,7 +172,6 @@ void SerialCommandHandler::handleHelp()
     Serial.println("  setallsegmentconfigs         - Initiates receiving segment configurations.");
     Serial.println("--- End of Help ---\n");
 }
-
 
 void SerialCommandHandler::handleListEffects()
 {
@@ -160,7 +215,7 @@ void SerialCommandHandler::handleGetStatus()
     Serial.println();
 }
 
-void SerialCommandHandler::handleGetConfig()
+void SerialCommandHandler::handleGetSavedConfig()
 {
     static char configBuffer[2048];
     if (loadConfig(configBuffer, sizeof(configBuffer)) > 0)

@@ -28,7 +28,8 @@ private:
     // Command-specific handler methods
     void handleListEffects();
     void handleGetStatus();
-    void handleGetConfig();
+    void handleGetSavedConfig();
+    void handleGetCurrConfig();
     void handleSaveConfig();
     void handleSetLedCount(const char* args);
     void handleGetLedCount();
