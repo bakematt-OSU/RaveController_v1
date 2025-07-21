@@ -148,9 +148,11 @@ void BLEManager::sendMessage(const uint8_t *data, size_t len)
     // The Android side will be responsible for reassembling them.
     size_t offset = 0;
     int chunkCount = 0;
+    // MODIFIED: Changed chunk size to 20 bytes as requested by the user.
+    const size_t BLE_MAX_CHUNK_SIZE = 20; 
     while (offset < len)
     {
-        size_t chunkSize = min((size_t)20, len - offset); // Use a safe, standard chunk size of 20
+        size_t chunkSize = min(BLE_MAX_CHUNK_SIZE, len - offset); 
         Serial.print("  Chunk ");
         Serial.print(++chunkCount);
         Serial.print(": ");
@@ -228,11 +230,13 @@ void BLEManager::handleWrite(BLEDevice central, BLECharacteristic characteristic
     // If a command handler callback is registered, call it with the received data.
     if (commandHandlerCallback)
     {
-        // Serial.println("BLE RX: Calling command handler");
         Serial.print("BLE RX: Command: ");
-        Serial.print((BleCommand)data[0]); // Print the command type
-        // Serial.print(" (");
-        // Serial.print(len);
+        // Check if data is long enough to safely cast to BleCommand
+        if (len > 0) {
+            Serial.print((BleCommand)data[0]); // Print the command type
+        } else {
+            Serial.print("Empty command");
+        }
         Serial.println(" bytes)");
     
         commandHandlerCallback(characteristic.value(), characteristic.valueLength());

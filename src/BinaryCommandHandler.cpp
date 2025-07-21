@@ -40,7 +40,7 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
     if (_incomingBatchState == IncomingBatchState::EXPECTING_EFFECT_ACK)
     {
         // Use CMD_ACK_GENERIC
-        bool isAck = (data[0] == (uint8_t)CMD_ACK_GENERIC) || (len >= 3 && data[0] == 'a' && data[1] == 'c' && data[2] == 'k');
+        bool isAck = (data[0] == (uint8_t)CMD_ACK_GENERIC);
         if (isAck)
         {
             handleAck();
@@ -81,7 +81,7 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
     // NEW: Handle ACK for the get all segments command
     if (_incomingBatchState == IncomingBatchState::EXPECTING_SEGMENT_ACK)
     {
-        bool isAck = (data[0] == (uint8_t)CMD_ACK_GENERIC) || (len >= 3 && data[0] == 'a' && data[1] == 'c' && data[2] == 'k');
+        bool isAck = (data[0] == (uint8_t)CMD_ACK_GENERIC);
         if (isAck)
         {
             handleAck(); // Call general ACK handler
@@ -131,33 +131,33 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
     BleCommand cmd = (BleCommand)data[0];
     const uint8_t *payload = data + 1;
     size_t payloadLen = len - 1;
-    bool sendGenericAck = true;
+    bool sendGenericAck = true; // Default to sending ACK unless specified otherwise
 
     switch (cmd)
     {
     case CMD_SAVE_CONFIG:
         handleSaveConfig();
-        sendGenericAck = false;
+        sendGenericAck = false; // Handled by saveConfig
         break;
     case CMD_GET_LED_COUNT:
         handleGetLedCount();
-        sendGenericAck = false;
+        sendGenericAck = false; // Handled by getLedCount
         break;
     case CMD_GET_ALL_SEGMENT_CONFIGS:
-        handleGetAllSegmentConfigs(false);
-        sendGenericAck = false;
+        handleGetAllSegmentConfigs(false); // False for BLE
+        sendGenericAck = false; // Handled by getAllSegmentConfigs
         break;
     case CMD_SET_ALL_SEGMENT_CONFIGS:
-        handleSetAllSegmentConfigsCommand(false);
-        sendGenericAck = false;
+        handleSetAllSegmentConfigsCommand(false); // False for BLE
+        sendGenericAck = false; // Handled by setAllSegmentConfigsCommand
         break;
     case CMD_GET_ALL_EFFECTS:
-        handleGetAllEffectsCommand(false);
-        sendGenericAck = false;
+        handleGetAllEffectsCommand(false); // False for BLE
+        sendGenericAck = false; // Handled by getAllEffectsCommand
         break;
     case CMD_ACK_GENERIC: // Use CMD_ACK_GENERIC
         handleAck();
-        sendGenericAck = false;
+        sendGenericAck = false; // This is an ACK, not a command to ACK
         break;
     case CMD_READY: // CMD_READY is an indicator, not a command to be actively handled with a function call here.
         Serial.println("CMD: Device Ready received.");
@@ -166,9 +166,7 @@ void BinaryCommandHandler::handleCommand(const uint8_t *data, size_t len)
     default:
         Serial.print("ERR: Unknown binary command: 0x");
         Serial.println(cmd, HEX);
-        sendGenericAck = false;
-        // Optionally send a NACK for unknown command, but the provided header doesn't list NACK commands
-        // sendNack(CMD_NACK_UNKNOWN_CMD);
+        sendGenericAck = false; // Unknown command, no ACK
         break;
     }
 
@@ -268,11 +266,9 @@ void BinaryCommandHandler::processIncomingAllSegmentsData(const uint8_t *data, s
     _jsonBufferIndex += len;
     _incomingJsonBuffer[_jsonBufferIndex] = '\0'; // Ensure null termination
 
-    // Removed EXPECTING_BATCH_CONFIG_JSON as it's no longer in the enum
-    // if (_incomingBatchState == IncomingBatchState::EXPECTING_BATCH_CONFIG_JSON) { ... }
-
     if (_incomingBatchState == IncomingBatchState::EXPECTING_ALL_SEGMENTS_COUNT)
     {
+        // Expecting 2 bytes for count
         if (_jsonBufferIndex >= 2)
         {
             _expectedSegmentsToReceive = (_incomingJsonBuffer[0] << 8) | _incomingJsonBuffer[1];
@@ -280,7 +276,7 @@ void BinaryCommandHandler::processIncomingAllSegmentsData(const uint8_t *data, s
             Serial.println(_expectedSegmentsToReceive);
             _segmentsReceivedInBatch = 0;
             _incomingBatchState = IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON;
-            _jsonBufferIndex = 0;
+            _jsonBufferIndex = 0; // Clear buffer for incoming JSON
             memset(_incomingJsonBuffer, 0, sizeof(_incomingJsonBuffer));
             uint8_t ack_payload[] = {(uint8_t)CMD_ACK_GENERIC}; // Use CMD_ACK_GENERIC
             BLEManager::getInstance().sendMessage(ack_payload, 1);
@@ -289,23 +285,27 @@ void BinaryCommandHandler::processIncomingAllSegmentsData(const uint8_t *data, s
     }
     else if (_incomingBatchState == IncomingBatchState::EXPECTING_ALL_SEGMENTS_JSON)
     {
+        // Look for a complete JSON object in the buffer
         char *start = strchr(_incomingJsonBuffer, '{');
         char *end = strrchr(_incomingJsonBuffer, '}');
 
         if (start && end && end > start)
         {
+            // Temporarily null-terminate the JSON string for parsing
             char original_char_after_end = *(end + 1);
             *(end + 1) = '\0';
 
             processSingleSegmentJson(start);
 
+            // Restore the original character
             *(end + 1) = original_char_after_end;
 
+            // Shift remaining data in the buffer
             size_t processed_len = (end - _incomingJsonBuffer) + 1;
             size_t remaining_len = _jsonBufferIndex - processed_len;
             memmove(_incomingJsonBuffer, end + 1, remaining_len);
             _jsonBufferIndex = remaining_len;
-            _incomingJsonBuffer[_jsonBufferIndex] = '\0';
+            _incomingJsonBuffer[_jsonBufferIndex] = '\0'; // Ensure null termination
 
             _segmentsReceivedInBatch++;
 
@@ -321,101 +321,11 @@ void BinaryCommandHandler::processIncomingAllSegmentsData(const uint8_t *data, s
                 _incomingBatchState = IncomingBatchState::IDLE;
                 _jsonBufferIndex = 0;
                 memset(_incomingJsonBuffer, 0, sizeof(_incomingJsonBuffer));
-                strip->show();
+                strip->show(); // Update strip after all segments are applied
             }
         }
     }
 }
-
-// *** START: Added / Corrected Member Function Definitions ***
-
-// handleBatchConfigJson is kept because processIncomingAllSegmentsData might call it
-// if a CMD_BATCH_CONFIG was received, even if the command itself is not in the new enum.
-// However, since CMD_BATCH_CONFIG is removed from the enum, this function is now unused.
-// I will keep it for now, but it could be removed if not called by any other kept logic.
-// Given the new enum, it's likely this function will become entirely obsolete.
-// For now, I'll remove the `CMD_BATCH_CONFIG` case from the switch, but keep the function definition.
-// Re-reading the prompt, the user wants the .cpp to *only* include the listed commands.
-// `handleBatchConfigJson` is not directly linked to a command in the new enum,
-// and if `EXPECTING_BATCH_CONFIG_JSON` is removed from `processIncomingAllSegmentsData`,
-// then `handleBatchConfigJson` will indeed be unused. So, I will remove it.
-
-// Removed handleBatchConfigJson as CMD_BATCH_CONFIG is no longer in the enum and its handling logic is removed from processIncomingAllSegmentsData.
-/*
-void BinaryCommandHandler::handleBatchConfigJson(const char *json)
-{
-    StaticJsonDocument<2048> doc;
-    DeserializationError error = deserializeJson(doc, json);
-
-    if (error)
-    {
-        Serial.print("ERR: BinaryCommandHandler::handleBatchConfigJson JSON parse error: ");
-        Serial.println(error.c_str());
-        BLEManager::getInstance().sendMessage("{\"error\":\"JSON_PARSE_ERROR\"}");
-        return;
-    }
-
-    if (strip)
-    {
-        strip->clearUserSegments();
-        JsonArray segments = doc["segments"];
-        for (JsonObject segData : segments)
-        {
-            const char *name = segData["name"] | "";
-            uint16_t start = segData["startLed"];
-            uint16_t end = segData["endLed"];
-            uint8_t brightness = segData["brightness"] | 255;
-            const char *effectNameStr = segData["effect"] | "SolidColor";
-
-            PixelStrip::Segment *targetSeg;
-            if (strcmp(name, "all") == 0)
-            {
-                targetSeg = strip->getSegments()[0];
-                targetSeg->setRange(start, end);
-            }
-            else
-            {
-                strip->addSection(start, end, name);
-                targetSeg = strip->getSegments().back();
-            }
-
-            targetSeg->setBrightness(brightness);
-            if (targetSeg->activeEffect)
-                delete targetSeg->activeEffect;
-            targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
-
-            if (targetSeg->activeEffect)
-            {
-                for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i)
-                {
-                    EffectParameter *p = targetSeg->activeEffect->getParameter(i);
-                    if (segData.containsKey(p->name))
-                    {
-                        switch (p->type)
-                        {
-                        case ParamType::INTEGER:
-                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<int>());
-                            break;
-                        case ParamType::FLOAT:
-                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<float>());
-                            break;
-                        case ParamType::COLOR:
-                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<uint32_t>());
-                            break;
-                        case ParamType::BOOLEAN:
-                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<bool>());
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        strip->show();
-        Serial.println("OK: Batch configuration applied.");
-        BLEManager::getInstance().sendMessage("{\"status\":\"OK\"}");
-    }
-}
-*/
 
 IncomingBatchState BinaryCommandHandler::getIncomingBatchState() const
 {
@@ -477,6 +387,7 @@ String BinaryCommandHandler::buildSegmentInfoJson(uint8_t segmentIndex)
     if (s->activeEffect)
     {
         segObj["effect"] = s->activeEffect->getName();
+        // Add parameters to the top level of the segment JSON
         for (int i = 0; i < s->activeEffect->getParameterCount(); ++i)
         {
             EffectParameter *p = s->activeEffect->getParameter(i);
@@ -521,8 +432,8 @@ void BinaryCommandHandler::handleGetAllSegmentConfigs(bool viaSerial)
     // Send count of segments first
     uint8_t count_payload[3];
     count_payload[0] = (uint8_t)CMD_GET_ALL_SEGMENT_CONFIGS; // Command for batch segment config
-    count_payload[1] = (_expectedSegmentsToSend_Out >> 8) & 0xFF;
-    count_payload[2] = _expectedSegmentsToSend_Out & 0xFF;
+    count_payload[1] = (_expectedSegmentsToSend_Out >> 8) & 0xFF; // MSB
+    count_payload[2] = _expectedSegmentsToSend_Out & 0xFF;       // LSB
 
     if (viaSerial)
     {
@@ -562,11 +473,6 @@ void BinaryCommandHandler::handleGetAllSegmentConfigs(bool viaSerial)
     }
 }
 
-// Removed handleSetColor, handleSetEffect, handleSetBrightness, handleSetSegmentBrightness,
-// handleSelectSegment, handleClearSegments, handleSetSegmentRange, handleSetLedCount,
-// handleSetEffectParameter, handleGetStatus, handleGetEffectInfo.
-// These are no longer in the provided BinaryCommandHandler.h enum.
-
 void BinaryCommandHandler::handleGetLedCount()
 {
     Serial.println("CMD: Get LED Count");
@@ -586,10 +492,13 @@ String BinaryCommandHandler::buildEffectInfoJson(uint8_t effectIndex)
     {
         return "{\"error\":\"Invalid effect index or strip not ready\"}";
     }
-    PixelStrip::Segment *dummySegment = strip->getSegments()[0];
+    // Create a dummy segment to instantiate the effect and get its parameters
+    // This is a temporary object and will be deleted.
+    PixelStrip::Segment *dummySegment = new PixelStrip::Segment(*strip, 0, 0, "dummy", 255); 
     BaseEffect *tempEffect = createEffectByName(effectName, dummySegment);
     if (!tempEffect)
     {
+        delete dummySegment; // Clean up dummy segment
         return "{\"error\":\"Failed to create temporary effect\"}";
     }
     StaticJsonDocument<512> doc;
@@ -624,7 +533,8 @@ String BinaryCommandHandler::buildEffectInfoJson(uint8_t effectIndex)
     }
     String response;
     serializeJson(doc, response);
-    delete tempEffect;
+    delete tempEffect;    // Clean up temporary effect
+    delete dummySegment; // Clean up dummy segment
     return response;
 }
 
@@ -649,30 +559,28 @@ void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
     uint8_t segmentId = doc["id"] | 0;
     PixelStrip::Segment *targetSeg = nullptr;
 
-    if (strcmp(name, "all") == 0)
-    {
-        targetSeg = strip->getSegments()[0];
-        targetSeg->setRange(start, end);
-    }
-    else
-    {
-        for (auto *s : strip->getSegments())
-        {
-            if (s->getId() == segmentId)
-            {
+    // Find existing segment by ID or create a new one
+    bool segmentFound = false;
+    if (strip) {
+        for (auto *s : strip->getSegments()) {
+            if (s->getId() == segmentId) {
                 targetSeg = s;
+                segmentFound = true;
                 break;
             }
         }
-        if (!targetSeg)
-        {
+    }
+
+    if (!segmentFound) {
+        // If segment not found by ID, add a new one
+        if (strip) {
             strip->addSection(start, end, name);
             targetSeg = strip->getSegments().back();
+            targetSeg->setRange(start, end); // Ensure range is set for new segment
         }
-        else
-        {
-            targetSeg->setRange(start, end);
-        }
+    } else {
+        // If segment found, update its range
+        targetSeg->setRange(start, end);
     }
 
     if (targetSeg)
@@ -729,15 +637,5 @@ void BinaryCommandHandler::processSingleSegmentJson(const char *jsonString)
     {
         Serial.println("ERR: Failed to find or create segment.");
     }
-    strip->show();
+    // strip->show() is called after all segments are received in processIncomingAllSegmentsData
 }
-
-// Removed sendNack as there are no NACK commands in the new enum.
-/*
-void BinaryCommandHandler::sendNack(BleCommand nackCode) {
-    uint8_t nack_payload[] = {(uint8_t)nackCode};
-    BLEManager::getInstance().sendMessage(nack_payload, 1);
-    Serial.print("-> Sent NACK: 0x");
-    Serial.println(nackCode, HEX);
-}
-*/

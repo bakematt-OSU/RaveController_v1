@@ -91,45 +91,61 @@ void setup()
                     uint16_t end = segData["endLed"];
                     uint8_t brightness = segData["brightness"] | 255;
                     const char* effectNameStr = segData["effect"] | "SolidColor";
+                    uint8_t segmentId = segData["id"] | 0; // Get ID from JSON
 
-                    PixelStrip::Segment *targetSeg;
-                    if (strcmp(name, "all") == 0)
-                    {
-                        targetSeg = strip->getSegments()[0];
-                        targetSeg->setRange(start, end);
+                    PixelStrip::Segment *targetSeg = nullptr;
+                    // Try to find existing segment by ID
+                    for (auto* s : strip->getSegments()) {
+                        if (s->getId() == segmentId) {
+                            targetSeg = s;
+                            break;
+                        }
                     }
-                    else
-                    {
+
+                    if (!targetSeg) {
+                        // If not found, add a new one
                         strip->addSection(start, end, name);
                         targetSeg = strip->getSegments().back();
                     }
+                    
+                    // Always update range and brightness
+                    if (targetSeg) {
+                        targetSeg->setRange(start, end);
+                        targetSeg->setBrightness(brightness);
 
-                    targetSeg->setBrightness(brightness);
-                    if (targetSeg->activeEffect) delete targetSeg->activeEffect;
-                    targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
+                        if (targetSeg->activeEffect) {
+                            if (strcmp(targetSeg->activeEffect->getName(), effectNameStr) != 0) {
+                                delete targetSeg->activeEffect;
+                                targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
+                            }
+                        } else {
+                            targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
+                        }
 
-                    if (targetSeg->activeEffect)
-                    {
-                        // This part is identical to handleBatchConfigJson
-                        for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i)
+                        if (targetSeg->activeEffect)
                         {
-                            EffectParameter *p = targetSeg->activeEffect->getParameter(i);
-                            if (segData.containsKey(p->name))
+                            // FIX: Removed the redundant .as<JsonObject>() cast on segData
+                            // segData is already a JsonObject in this loop context.
+                            for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i)
                             {
-                                switch (p->type)
+                                EffectParameter *p = targetSeg->activeEffect->getParameter(i);
+                                if (segData.containsKey(p->name))
                                 {
-                                case ParamType::INTEGER:
-                                    targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<int>());
-                                    break;
-                                case ParamType::FLOAT:
-                                    targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<float>());
-                                    break;
-                                case ParamType::COLOR:
-                                    targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<uint32_t>());
-                                    break;
-                                case ParamType::BOOLEAN:
-                                    targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<bool>());
-                                    break;
+                                    switch (p->type)
+                                    {
+                                    case ParamType::INTEGER:
+                                        targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<int>());
+                                        break;
+                                    case ParamType::FLOAT:
+                                        targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<float>());
+                                        break;
+                                    case ParamType::COLOR:
+                                        targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<uint32_t>());
+                                        break;
+                                    case ParamType::BOOLEAN:
+                                        targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<bool>());
+                                        break;
+                                    }
                                 }
                             }
                         }

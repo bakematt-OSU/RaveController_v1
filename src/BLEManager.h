@@ -52,7 +52,7 @@ public:
     }
 
     /**
-     * @brief Initializes the BLE service, characteristics, and starts advertising.
+     * @brief Initial7izes the BLE service, characteristics, and starts advertising.
      * @param deviceName The name the device will advertise.
      * @param callback The function to call when a command is received.
      */

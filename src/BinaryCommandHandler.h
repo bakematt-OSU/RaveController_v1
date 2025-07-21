@@ -32,7 +32,7 @@ enum BleCommand : uint8_t
 enum class IncomingBatchState
 {
     IDLE,                               ///< No multi-part command in progress.
-    EXPECTING_BATCH_CONFIG_JSON,        ///< Expecting the full JSON payload for a batch config.
+    // Removed EXPECTING_BATCH_CONFIG_JSON as it's no longer used.
     EXPECTING_ALL_SEGMENTS_COUNT,       ///< Expecting the total count of segments for a batch update.
     EXPECTING_ALL_SEGMENTS_JSON,        ///< Expecting individual segment JSON payloads.
     EXPECTING_EFFECT_ACK,               ///< Waiting for an ACK before sending the next effect's info.
@@ -123,97 +123,22 @@ private:
     uint16_t _segmentsSentInBatch_Out;   ///< Number of segments sent so far in an outgoing batch.
 
     // --- Helper Functions ---
-    /**
-     * @brief Sends an acknowledgment (ACK) command.
-     * @param ackCode The specific ACK code to send.
-     */
-    void sendAck(BleCommand ackCode);
-    /**
-     * @brief Sends a negative acknowledgment (NACK) command.
-     * @param nackCode The specific NACK code to send.
-     */
-    void sendNack(BleCommand nackCode);
+    // Removed sendAck and sendNack as they are no longer used in the new protocol.
     
     // --- Command Handlers (Private implementations for specific commands) ---
-    /**
-     * @brief Handles the Set Color command (OBSOLETE).
-     * @param payload Pointer to the command payload.
-     * @param len Length of the payload.
-     */
-    void handleSetColor(const uint8_t *payload, size_t len);
-    /**
-     * @brief Handles the Set Effect command (OBSOLETE).
-     * @param payload Pointer to the command payload.
-     * @param len Length of the payload.
-     */
-    void handleSetEffect(const uint8_t *payload, size_t len);
-    /**
-     * @brief Handles the Set Brightness (global) command (OBSOLETE).
-     * @param payload Pointer to the command payload.
-     * @param len Length of the payload.
-     */
-    void handleSetBrightness(const uint8_t *payload, size_t len);
-    /**
-     * @brief Handles the Set Segment Brightness command (OBSOLETE).
-     * @param payload Pointer to the command payload.
-     * @param len Length of the payload.
-     */
-    void handleSetSegmentBrightness(const uint8_t *payload, size_t len);
-    /**
-     * @brief Handles the Select Segment command.
-     * @param payload Pointer to the command payload.
-     * @param len Length of the payload.
-     */
-    void handleSelectSegment(const uint8_t *payload, size_t len);
-    /**
-     * @brief Handles the Clear Segments command.
-     */
-    void handleClearSegments();
-    /**
-     * @brief Handles the Set Segment Range command (OBSOLETE).
-     * @param payload Pointer to the command payload.
-     * @param len Length of the payload.
-     */
-    void handleSetSegmentRange(const uint8_t *payload, size_t len);
-    /**
-     * @brief Handles the Set LED Count command.
-     * @param payload Pointer to the command payload (containing the new LED count).
-     * @param len Length of the payload.
-     */
-    void handleSetLedCount(const uint8_t *payload, size_t len);
-    /**
-     * @brief Handles the Set Effect Parameter command.
-     * @param payload Pointer to the command payload (segment ID, param type, name, value).
-     * @param len Length of the payload.
-     */
-    void handleSetEffectParameter(const uint8_t *payload, size_t len);
+    // Removed all individual command handlers that are not part of the simplified binary protocol.
+    // The only remaining ones are those directly related to the new binary commands.
+    
     /**
      * @brief Handles the Save Config command.
      */
     void handleSaveConfig();
-    /**
-     * @brief Handles the Get Status command.
-     */
-    void handleGetStatus();
+    
     /**
      * @brief Handles the Get LED Count command.
      */
     void handleGetLedCount();
     
-    /**
-     * @brief Processes a batch configuration provided as a JSON string.
-     * @param json The JSON string to parse and apply.
-     */
-    void handleBatchConfigJson(const char* json);
-
-    /**
-     * @brief Handles the Get Effect Info command.
-     * @param payload Pointer to the command payload (effect ID).
-     * @param len Length of the payload.
-     * @param viaSerial If true, sends output to Serial; otherwise, sends via BLE.
-     */
-    void handleGetEffectInfo(const uint8_t *payload, size_t len, bool viaSerial = false);
-
     /**
      * @brief Builds a JSON string containing information about a specific effect.
      * @param effectIndex The index of the effect to build info for.
