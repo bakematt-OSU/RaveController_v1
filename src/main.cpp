@@ -173,7 +173,7 @@ void setup()
         initLEDs();
     }
 
-    bleManager.begin("RaveControllerV2", onBleCommandReceived);
+    bleManager.begin("RaveCape-V1", onBleCommandReceived);
 
     Serial.println("Setup complete. Entering main loop...");
 }
