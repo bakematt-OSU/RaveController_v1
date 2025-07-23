@@ -1,3 +1,5 @@
+// In src/SerialCommandHandler.cpp
+
 #include "SerialCommandHandler.h"
 #include "globals.h"
 #include "EffectLookup.h"
@@ -8,7 +10,6 @@
 #include <cstring>
 #include <cstdlib>
 
-// Forward declare the binary command handler instance
 extern BinaryCommandHandler binaryCommandHandler;
 extern BLEManager &bleManager;
 
@@ -64,8 +65,8 @@ void SerialCommandHandler::handleCommand(char *command)
         handleGetAllSegmentConfigsSerial();
     else if (strcmp(cmd, "getalleffects") == 0)
         handleGetAllEffectsSerial();
-    else if (strcmp(cmd, "setallsegmentconfigs") == 0)
-        handleSetAllSegmentConfigsSerial();
+    // else if (strcmp(cmd, "setallsegmentconfigs") == 0)
+    //     handleSetAllSegmentConfigsSerial();
     else if (strcmp(cmd, "setsegmentjson") == 0)
         handleSetSingleSegmentJson(args);
     else if (strcmp(cmd, "blestatus") == 0)
@@ -550,10 +551,10 @@ void SerialCommandHandler::handleGetAllEffectsSerial()
     binaryCommandHandler.handleGetAllEffectsCommand(true);
 }
 
-void SerialCommandHandler::handleSetAllSegmentConfigsSerial()
-{
-    binaryCommandHandler.handleSetAllSegmentConfigsCommand(true);
-}
+// void SerialCommandHandler::handleSetAllSegmentConfigsSerial()
+// {
+//     binaryCommandHandler.handleSetAllSegmentConfigsCommand(true);
+// }
 
 void SerialCommandHandler::handleBleReset()
 {

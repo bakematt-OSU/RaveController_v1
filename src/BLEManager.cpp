@@ -58,6 +58,7 @@ void BLEManager::begin(const char *deviceName, CommandCallback callback)
     }
     Serial.println("BLE: BLE stack started successfully");
 
+    
     // Set the device name and advertise the service
     BLE.setLocalName(deviceName);
     BLE.setAdvertisedService(bleService);
@@ -149,7 +150,7 @@ void BLEManager::sendMessage(const uint8_t *data, size_t len)
     size_t offset = 0;
     int chunkCount = 0;
     // MODIFIED: Changed chunk size to 20 bytes as requested by the user.
-    const size_t BLE_MAX_CHUNK_SIZE = 20; 
+    const size_t BLE_MAX_CHUNK_SIZE = 120; 
     while (offset < len)
     {
         size_t chunkSize = min(BLE_MAX_CHUNK_SIZE, len - offset); 
@@ -177,6 +178,21 @@ bool BLEManager::isConnected()
 
 // --- Event Handlers ---
 
+// void BLEManager::handleConnect(BLEDevice central)
+// {
+//     Serial.print("BLE CONNECT: Device connected - ");
+//     Serial.print(central.address());
+//     Serial.print(" (Name: ");
+//     Serial.print(central.localName());
+//     Serial.println(")");
+// }
+
+// In src/BLEManager.cpp
+
+// --- This is the key change ---
+// We need to access the global binaryCommandHandler instance.
+extern BinaryCommandHandler binaryCommandHandler;
+
 void BLEManager::handleConnect(BLEDevice central)
 {
     Serial.print("BLE CONNECT: Device connected - ");
@@ -184,6 +200,9 @@ void BLEManager::handleConnect(BLEDevice central)
     Serial.print(" (Name: ");
     Serial.print(central.localName());
     Serial.println(")");
+
+    // --- FIX: Call the reset function on the command handler ---
+    binaryCommandHandler.reset();
 }
 
 void BLEManager::handleDisconnect(BLEDevice central)

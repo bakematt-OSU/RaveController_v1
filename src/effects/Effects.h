@@ -26,9 +26,10 @@
 // List of effects that DO require the shared "scratchpad" memory buffer.
 // Format: X(EnumName, ClassName)
 #define BUFFERED_EFFECT_LIST(X) \
+    X(ColoredFire, ColoredFire) \
     X(Fire,        Fire)        \
-    X(Flare,       Flare)       \
-    X(ColoredFire, ColoredFire)
+    X(Flare,       Flare)       
+    // X(ColoredFire, ColoredFire)
 
 // The EFFECT_LIST macro now combines both lists automatically.
 // This is used to generate the list of names for the app.

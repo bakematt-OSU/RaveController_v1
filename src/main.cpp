@@ -1,10 +1,9 @@
-// src/main.cpp
 /**
  * @file main.cpp
  * @brief Main application logic for the Rave Controller.
  *
- * @version 2.7 (Timeout Integration)
- * @date 2025-07-18
+ * @version 2.9 (Reliable Packet Protocol - Final)
+ * @date 2025-07-22
  */
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -15,7 +14,7 @@
 #include "BinaryCommandHandler.h"
 #include "SerialCommandHandler.h"
 #include "ConfigManager.h"
-#include "EffectLookup.h" // Needed for createEffectByName
+#include "EffectLookup.h"
 
 // --- Global Object Instances ---
 BLEManager &bleManager = BLEManager::getInstance();
@@ -25,13 +24,11 @@ SerialCommandHandler serialCommandHandler;
 // --- Global Variable Definitions ---
 PixelStrip *strip = nullptr;
 PixelStrip::Segment *seg = nullptr;
-uint16_t LED_COUNT = 585; // Default value
+uint16_t LED_COUNT = 585;
 const char *STATE_FILE = "/littlefs/state.json";
 LittleFS_MBED myFS;
 
 unsigned long lastHeartbeatReceived = 0;
-
-// MODIFIED: Use the new constant from Config.h to define the array
 uint8_t effectScratchpad[EFFECT_SCRATCHPAD_SIZE];
 
 AudioTrigger<SAMPLES> audioTrigger;
@@ -39,8 +36,6 @@ volatile int16_t sampleBuffer[SAMPLES];
 volatile int samplesRead = 0;
 float accelX, accelY, accelZ;
 volatile bool triggerRipple = false;
-
-
 bool reAdvertisingMessagePrinted = false;
 
 // --- Forward declarations ---
@@ -48,6 +43,9 @@ void processAudio();
 void processAccel();
 void processSerial();
 
+/**
+ * @brief Callback function for when any data is received over BLE.
+ */
 void onBleCommandReceived(const uint8_t *data, size_t len)
 {
     binaryCommandHandler.handleCommand(data, len);
@@ -61,25 +59,18 @@ void setup()
     static char configBuffer[2048];
     size_t configSize = loadConfig(configBuffer, sizeof(configBuffer));
 
-    // --- Robust Configuration Loading ---
     if (configSize > 0)
     {
-        // 1. Parse the entire configuration file ONCE.
         StaticJsonDocument<2048> doc;
         DeserializationError error = deserializeJson(doc, configBuffer, configSize);
 
         if (error == DeserializationError::Ok)
         {
-            // 2. Extract LED_COUNT from the parsed document.
             LED_COUNT = doc["led_count"] | 585;
-
-            // 3. Initialize hardware that depends on config values.
             initIMU();
             initAudio();
             initLEDs();
 
-            // 4. Apply the rest of the configuration directly from the parsed 'doc'.
-            Serial.println("Restoring full configuration from saved state...");
             if (strip && doc.containsKey("segments"))
             {
                 strip->clearUserSegments();
@@ -91,10 +82,9 @@ void setup()
                     uint16_t end = segData["endLed"];
                     uint8_t brightness = segData["brightness"] | 255;
                     const char* effectNameStr = segData["effect"] | "SolidColor";
-                    uint8_t segmentId = segData["id"] | 0; // Get ID from JSON
+                    uint8_t segmentId = segData["id"] | 0;
 
                     PixelStrip::Segment *targetSeg = nullptr;
-                    // Try to find existing segment by ID
                     for (auto* s : strip->getSegments()) {
                         if (s->getId() == segmentId) {
                             targetSeg = s;
@@ -103,12 +93,10 @@ void setup()
                     }
 
                     if (!targetSeg) {
-                        // If not found, add a new one
                         strip->addSection(start, end, name);
                         targetSeg = strip->getSegments().back();
                     }
                     
-                    // Always update range and brightness
                     if (targetSeg) {
                         targetSeg->setRange(start, end);
                         targetSeg->setBrightness(brightness);
@@ -122,29 +110,15 @@ void setup()
                             targetSeg->activeEffect = createEffectByName(effectNameStr, targetSeg);
                         }
 
-                        if (targetSeg->activeEffect)
-                        {
-                            // FIX: Removed the redundant .as<JsonObject>() cast on segData
-                            // segData is already a JsonObject in this loop context.
-                            for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i)
-                            {
+                        if (targetSeg->activeEffect) {
+                            for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i) {
                                 EffectParameter *p = targetSeg->activeEffect->getParameter(i);
-                                if (segData.containsKey(p->name))
-                                {
-                                    switch (p->type)
-                                    {
-                                    case ParamType::INTEGER:
-                                        targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<int>());
-                                        break;
-                                    case ParamType::FLOAT:
-                                        targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<float>());
-                                        break;
-                                    case ParamType::COLOR:
-                                        targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<uint32_t>());
-                                        break;
-                                    case ParamType::BOOLEAN:
-                                        targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<bool>());
-                                        break;
+                                if (segData.containsKey(p->name)) {
+                                    switch (p->type) {
+                                        case ParamType::INTEGER: targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<int>()); break;
+                                        case ParamType::FLOAT:   targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<float>()); break;
+                                        case ParamType::COLOR:   targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<uint32_t>()); break;
+                                        case ParamType::BOOLEAN: targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<bool>()); break;
                                     }
                                 }
                             }
@@ -152,60 +126,30 @@ void setup()
                     }
                 }
                 strip->show();
-                Serial.println("OK: Startup configuration restored.");
             }
         }
         else
         {
-            // If JSON is invalid, proceed with defaults
-            Serial.print("ERR: Config file parse failed: ");
-            Serial.println(error.c_str());
             initIMU();
             initAudio();
-            initLEDs(); // Use default LED_COUNT
+            initLEDs();
         }
     }
     else
     {
-        // No config file found, initialize with defaults
         initIMU();
         initAudio();
         initLEDs();
     }
 
     bleManager.begin("RaveCape-V1", onBleCommandReceived);
-
     Serial.println("Setup complete. Entering main loop...");
 }
 
 void loop()
 {
-    static unsigned long lastBleCheck = 0;
-    unsigned long currentMillis = millis();
-
     bleManager.update();
-    binaryCommandHandler.update(); // Added: Call the update method for timeout checks
-
-    // if (currentMillis - lastBleCheck > 500)
-    // {
-    //     lastBleCheck = currentMillis;
-    //     if (!bleManager.isConnected())
-    //     {
-    //         BLE.stopAdvertise();
-    //         BLE.advertise();
-
-    //         if (!reAdvertisingMessagePrinted)
-    //         {
-    //             Serial.println("BLE Polling: Not connected. Attempting to re-advertise.");
-    //             reAdvertisingMessagePrinted = true;
-    //         }
-    //     }
-    //     else
-    //     {
-    //         reAdvertisingMessagePrinted = false;
-    //     }
-    // }
-
+    binaryCommandHandler.update();
     processSerial();
     processAudio();
     processAccel();
@@ -220,55 +164,33 @@ void loop()
     }
 }
 
-// --- Serial Command Processing ---
+
 void processSerial()
 {
-    if (binaryCommandHandler.isSerialBatchActive() &&
-       (binaryCommandHandler.getIncomingBatchState() != IncomingBatchState::IDLE))
+    // --- FIX: Simplified serial processing ---
+    // The old logic for a "serial batch mode" is removed as it's no longer needed
+    // with the new reliable packet system. All serial commands are now simple text commands.
+    if (Serial.available() > 0)
     {
-        if (Serial.available() > 0)
-        {
-            const size_t max_read_len = 256;
-            uint8_t temp_buffer[max_read_len];
-            size_t bytes_read = Serial.readBytes(temp_buffer, min((size_t)Serial.available(), max_read_len));
-            if (bytes_read > 0)
-            {
-                binaryCommandHandler.handleCommand(temp_buffer, bytes_read);
+        static char command_buffer[256];
+        int bytes_read = Serial.readBytesUntil('\n', command_buffer, sizeof(command_buffer) - 1);
+
+        if (bytes_read > 0) {
+            command_buffer[bytes_read] = '\0';
+            char* command = command_buffer;
+            while (isspace(*command)) { command++; } // Trim leading whitespace
+            for (int i = strlen(command) - 1; i >= 0; i--) { // Trim trailing whitespace
+                if (isspace(command[i])) { command[i] = '\0'; }
+                else { break; }
             }
-        }
-    }
-    else
-    {
-        if (Serial.available() > 0)
-        {
-            static char command_buffer[256];
-            int bytes_read = Serial.readBytesUntil('\n', command_buffer, sizeof(command_buffer) - 1);
-
-            if (bytes_read > 0) {
-                command_buffer[bytes_read] = '\0';
-
-                char* command = command_buffer;
-                while (isspace(*command)) {
-                    command++;
-                }
-
-                for (int i = strlen(command) - 1; i >= 0; i--) {
-                    if (isspace(command[i])) {
-                        command[i] = '\0';
-                    } else {
-                        break;
-                    }
-                }
-
-                if (strlen(command) > 0) {
-                    serialCommandHandler.handleCommand(command);
-                }
+            if (strlen(command) > 0) {
+                serialCommandHandler.handleCommand(command);
             }
         }
     }
 }
 
-// --- Hardware Processing Functions ---
+
 void processAudio()
 {
     if (samplesRead > 0)

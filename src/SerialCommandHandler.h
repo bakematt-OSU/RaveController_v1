@@ -1,10 +1,4 @@
-/**
- * @file SerialCommandHandler.h
- * @brief Defines a handler for processing text-based commands from the serial port.
- * @version 0.4
- * @date 2025-07-16
- * @copyright Copyright (c) 2025
- */
+// In src/SerialCommandHandler.h
 
 #ifndef SERIAL_COMMAND_HANDLER_H
 #define SERIAL_COMMAND_HANDLER_H
@@ -18,10 +12,6 @@
 class SerialCommandHandler
 {
 public:
-    /**
-     * @brief Main entry point for processing a command string from the Serial Monitor.
-     * @param command A mutable C-style string containing the raw command.
-     */
     void handleCommand(char* command);
 
 private:
@@ -43,12 +33,12 @@ private:
     void handleBleReset();
     void handleBleStatus();
     void handleHelp();
-
+    void handleGetParameters(const char* args);
+    
+    // Serial-only test functions that call the binary handler
     void handleGetAllSegmentConfigsSerial();
     void handleGetAllEffectsSerial();
-    void handleSetAllSegmentConfigsSerial();
-
-    void handleGetParameters(const char* args);
+    // void handleSetAllSegmentConfigsSerial(); // <-- FIX: This function is obsolete and has been removed.
     void handleSetSingleSegmentJson(const char* json);
 };
 
