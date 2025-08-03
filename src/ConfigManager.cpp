@@ -14,7 +14,7 @@ extern BLEManager &bleManager;
 // --- Saves the complete strip configuration ---
 bool saveConfig()
 {
-    StaticJsonDocument<2048> doc;
+    StaticJsonDocument<4096> doc; // Increased size
     doc["led_count"] = LED_COUNT;
 
     JsonArray segments = doc.createNestedArray("segments");
@@ -32,22 +32,24 @@ bool saveConfig()
             if (s->activeEffect) {
                 segObj["effect"] = s->activeEffect->getName();
                 
+                // Create a nested "parameters" object for consistency
+                JsonObject paramsObj = segObj.createNestedObject("parameters");
                 for (int i = 0; i < s->activeEffect->getParameterCount(); ++i)
                 {
                     EffectParameter *p = s->activeEffect->getParameter(i);
                     switch (p->type)
                     {
                     case ParamType::INTEGER:
-                        segObj[p->name] = p->value.intValue;
+                        paramsObj[p->name] = p->value.intValue;
                         break;
                     case ParamType::FLOAT:
-                        segObj[p->name] = p->value.floatValue;
+                        paramsObj[p->name] = p->value.floatValue;
                         break;
                     case ParamType::COLOR:
-                        segObj[p->name] = p->value.colorValue;
+                        paramsObj[p->name] = p->value.colorValue;
                         break;
                     case ParamType::BOOLEAN:
-                        segObj[p->name] = p->value.boolValue;
+                        paramsObj[p->name] = p->value.boolValue;
                         break;
                     }
                 }
@@ -60,8 +62,7 @@ bool saveConfig()
     FILE *file = fopen(STATE_FILE, "w");
     if (file)
     {
-        // MODIFIED: Use a static buffer to prevent stack overflow.
-        static char serializationBuffer[2048];
+        static char serializationBuffer[4096]; // Increased size
         size_t bytesWritten = serializeJson(doc, serializationBuffer, sizeof(serializationBuffer));
         
         if (bytesWritten > 0) {
@@ -121,7 +122,7 @@ void setLedCount(uint16_t newSize)
 // --- Processes a JSON string to configure segments and effects ---
 void handleBatchConfigJson(const char* json)
 {
-    StaticJsonDocument<2048> doc;
+    StaticJsonDocument<4096> doc; // Increased size
     DeserializationError error = deserializeJson(doc, json);
 
     if (error)
@@ -163,28 +164,37 @@ void handleBatchConfigJson(const char* json)
 
             if (targetSeg->activeEffect)
             {
-                for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i)
-                {
-                    EffectParameter *p = targetSeg->activeEffect->getParameter(i);
-                    if (segData.containsKey(p->name))
+                // --- THIS IS THE FIX ---
+                // Check for the nested "parameters" object first.
+                if (segData.containsKey("parameters")) {
+                    JsonObject paramsObj = segData["parameters"];
+                    
+                    // Iterate through the effect's actual parameters and look for them
+                    // inside the "parameters" object we just found.
+                    for (int i = 0; i < targetSeg->activeEffect->getParameterCount(); ++i)
                     {
-                        switch (p->type)
+                        EffectParameter *p = targetSeg->activeEffect->getParameter(i);
+                        if (paramsObj.containsKey(p->name))
                         {
-                        case ParamType::INTEGER:
-                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<int>());
-                            break;
-                        case ParamType::FLOAT:
-                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<float>());
-                            break;
-                        case ParamType::COLOR:
-                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<uint32_t>());
-                            break;
-                        case ParamType::BOOLEAN:
-                            targetSeg->activeEffect->setParameter(p->name, segData[p->name].as<bool>());
-                            break;
+                            switch (p->type)
+                            {
+                            case ParamType::INTEGER:
+                                targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<int>());
+                                break;
+                            case ParamType::FLOAT:
+                                targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<float>());
+                                break;
+                            case ParamType::COLOR:
+                                targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<uint32_t>());
+                                break;
+                            case ParamType::BOOLEAN:
+                                targetSeg->activeEffect->setParameter(p->name, paramsObj[p->name].as<bool>());
+                                break;
+                            }
                         }
                     }
                 }
+                // --- END OF FIX ---
             }
         }
         strip->show();
